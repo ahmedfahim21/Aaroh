@@ -3,10 +3,18 @@
 MCP shopping client: discover any UCP merchant and browse, cart, checkout via tools.
 
 Set MERCHANT_URL to connect to a merchant, or use discover_merchant(url) first.
+
+Checkout flow (x402 crypto payments):
+  1. checkout()                  – creates a session; returns wallet_address + order_total
+  2. <user signs x402 payment>   – user signs an EIP-3009 USDC authorisation in their wallet
+                                   and provides the base64 X-PAYMENT string
+  3. complete_checkout(x_payment) – posts the signed payment; returns order confirmation
 """
 
+import concurrent.futures
 import json
 import os
+import re
 import uuid
 from typing import Any
 
@@ -14,7 +22,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP(
-    "Artisan Commerce",
+    "Aaroh",
     instructions="Shopping assistant for UCP merchants. Discover a merchant first, then browse and shop.",
 )
 
@@ -57,6 +65,55 @@ def _ucp_headers() -> dict[str, str]:
         "Request-Id": str(uuid.uuid4()),
         "Content-Type": "application/json",
     }
+
+
+def _probe_merchant(url: str) -> dict[str, Any] | None:
+    """Probe a single URL for a UCP discovery profile. Returns None on any failure.
+
+    Uses aggressive timeouts (connect=1s, read=3s) so parallel port scanning
+    across 10 candidates completes in at most ~3 seconds wall-clock time.
+    """
+    url = url.rstrip("/")
+    try:
+        timeout = httpx.Timeout(connect=1.0, read=3.0, write=1.0, pool=1.0)
+        with httpx.Client(timeout=timeout) as client:
+            r = client.get(f"{url}/.well-known/ucp")
+            r.raise_for_status()
+            profile = r.json()
+    except Exception:
+        return None
+    # Must look like a UCP profile — avoids false positives from other HTTP services
+    if not isinstance(profile.get("ucp"), dict):
+        return None
+    merchant = profile.get("merchant") or {}
+    cats_raw: str = merchant.get("product_categories", "") or ""
+    categories = [c.strip() for c in cats_raw.split(",") if c.strip()]
+    handlers = profile.get("payment", {}).get("handlers", [])
+    return {
+        "name": merchant.get("name", url),
+        "url": url,
+        "product_categories": categories,
+        "payment_handler_ids": [h.get("id", "") for h in handlers if h.get("id")],
+    }
+
+
+def _candidate_urls() -> list[str]:
+    """Build the deduplicated list of merchant URLs to probe.
+
+    Sources (in priority order):
+    1. MERCHANT_URLS env var — comma/space-separated base URLs
+    2. Fallback: localhost:8000–8009
+    Always includes the currently connected merchant (_merchant_base_url) if set.
+    """
+    raw_env = os.environ.get("MERCHANT_URLS", "").strip()
+    if raw_env:
+        urls = [u.rstrip("/") for u in re.split(r"[,\s]+", raw_env) if u.strip()]
+    else:
+        urls = [f"http://localhost:{port}" for port in range(8000, 8010)]
+    url_set: set[str] = set(urls)
+    if _merchant_base_url:
+        url_set.add(_merchant_base_url.rstrip("/"))
+    return list(url_set)
 
 
 # ---- Tools ----
@@ -144,7 +201,7 @@ def search_products(query: str = "", category: str | None = None) -> str:
             "id": p["id"],
             "title": p["title"],
             "price": p["price"],
-            "price_rs": p["price"] / 100,
+            "price_usd": p["price"] / 100,
             "category": p.get("category"),
             "origin_state": p.get("origin_state"),
             "artisan_name": p.get("artisan_name"),
@@ -173,7 +230,7 @@ def get_product(product_id: str) -> str:
             "id": p["id"],
             "title": p["title"],
             "price": p["price"],
-            "price_rs": p["price"] / 100,
+            "price_usd": p["price"] / 100,
             "category": p.get("category"),
             "origin_state": p.get("origin_state"),
             "artisan_name": p.get("artisan_name"),
@@ -215,20 +272,20 @@ def add_to_cart(product_id: str, quantity: int = 1) -> str:
 def view_cart() -> str:
     """Show current cart with line items and totals."""
     if not _cart:
-        return json.dumps({"_ui": {"type": "cart"}, "items": [], "total_paise": 0, "message": "Your cart is empty."})
-    total_paise = 0
+        return json.dumps({"_ui": {"type": "cart"}, "items": [], "total_cents": 0, "message": "Your cart is empty."})
+    total_cents = 0
     items = []
     for item in _cart:
         line_total = item["price"] * item["quantity"]
-        total_paise += line_total
+        total_cents += line_total
         items.append({
             "product_id": item["product_id"],
             "title": item["title"],
             "quantity": item["quantity"],
-            "price_paise": item["price"],
-            "line_total_paise": line_total,
+            "price_cents": item["price"],
+            "line_total_cents": line_total,
         })
-    return json.dumps({"_ui": {"type": "cart"}, "items": items, "total_paise": total_paise})
+    return json.dumps({"_ui": {"type": "cart"}, "items": items, "total_cents": total_cents})
 
 
 @mcp.tool()
@@ -250,6 +307,93 @@ def remove_from_cart(product_id: str) -> str:
     return update_cart(product_id, 0)
 
 
+@mcp.tool()
+def list_merchants(category: str | None = None) -> str:
+    """Discover running UCP merchants without knowing their URLs upfront.
+
+    Reads MERCHANT_URLS environment variable (comma- or space-separated base URLs).
+    If not set, scans localhost ports 8000–8009. Also includes the currently
+    connected merchant if one is active.
+
+    Args:
+        category: Optional keyword filter. Only merchants whose product_categories
+                  contains this substring (case-insensitive) are returned.
+                  Pass None to list all discovered merchants.
+    """
+    urls = _candidate_urls()
+    results: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(urls), 1)) as pool:
+        for result in pool.map(_probe_merchant, urls):
+            if result is not None:
+                results.append(result)
+
+    if category:
+        q = category.lower()
+        results = [r for r in results if q in ", ".join(r["product_categories"]).lower()]
+
+    results.sort(key=lambda r: r["name"].lower())
+
+    response: dict[str, Any] = {"merchants": results, "count": len(results)}
+    if category:
+        response["filtered_by"] = category
+    if not results:
+        response["message"] = (
+            f"No merchants found matching '{category}'."
+            if category
+            else "No running UCP merchants found. Set MERCHANT_URLS or start a merchant server on localhost:8000–8009."
+        )
+    return json.dumps(response)
+
+
+@mcp.tool()
+def find_merchant(query: str) -> str:
+    """Find and auto-connect to a UCP merchant by name or product category.
+
+    Probes all known/configured merchant URLs (same as list_merchants) and
+    matches the query against both merchant name and product categories
+    (case-insensitive substring).
+
+    - Exactly 1 match: auto-connects via discover_merchant(url).
+    - 0 matches: returns error with all discovered merchants listed.
+    - 2+ matches: returns the ambiguous list; use discover_merchant(url) to pick one.
+
+    Args:
+        query: Search term, e.g. "candles", "artisan", "home decor".
+    """
+    urls = _candidate_urls()
+    all_results: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(urls), 1)) as pool:
+        for result in pool.map(_probe_merchant, urls):
+            if result is not None:
+                all_results.append(result)
+    all_results.sort(key=lambda r: r["name"].lower())
+
+    q = query.lower()
+    matches = [
+        r for r in all_results
+        if q in r["name"].lower() or q in ", ".join(r["product_categories"]).lower()
+    ]
+
+    if len(matches) == 1:
+        return discover_merchant(matches[0]["url"])
+
+    def _slim(r: dict[str, Any]) -> dict[str, Any]:
+        return {"name": r["name"], "url": r["url"], "product_categories": r["product_categories"]}
+
+    if len(matches) == 0:
+        return json.dumps({
+            "error": f"No merchants found matching '{query}'.",
+            "all_merchants": [_slim(r) for r in all_results],
+            "suggestion": "Call discover_merchant(url) with a URL above, or try list_merchants().",
+        })
+
+    return json.dumps({
+        "error": f"Multiple merchants match '{query}'. Please choose one.",
+        "matches": [_slim(r) for r in matches],
+        "suggestion": "Call discover_merchant(url) with the URL of your preferred merchant.",
+    })
+
+
 def _build_create_payload() -> dict[str, Any]:
     handlers = (_merchant_profile or {}).get("payment", {}).get("handlers", [])
     if not handlers:
@@ -261,7 +405,7 @@ def _build_create_payload() -> dict[str, Any]:
         }
         for item in _cart
     ]
-    # Fulfillment: default Indian address and standard shipping so complete can succeed
+    # Fulfillment: placeholder address and standard shipping so complete can succeed
     fulfillment = {
         "methods": [
             {
@@ -270,10 +414,10 @@ def _build_create_payload() -> dict[str, Any]:
                     {
                         "id": "dest_1",
                         "street_address": "123 Demo St",
-                        "address_locality": "Mumbai",
-                        "address_region": "MH",
-                        "postal_code": "400001",
-                        "address_country": "IN",
+                        "address_locality": "Anytown",
+                        "address_region": "CA",
+                        "postal_code": "90210",
+                        "address_country": "US",
                     }
                 ],
                 "selected_destination_id": "dest_1",
@@ -282,16 +426,16 @@ def _build_create_payload() -> dict[str, Any]:
                         "id": "group_1",
                         "line_item_ids": [],
                         "options": [
-                            {"id": "std-in", "title": "Standard Shipping (India)", "totals": [{"type": "total", "amount": 5000}]}
+                            {"id": "std", "title": "Standard Shipping", "totals": [{"type": "total", "amount": 500}]}
                         ],
-                        "selected_option_id": "std-in",
+                        "selected_option_id": "std",
                     }
                 ],
             }
         ]
     }
     return {
-        "currency": "INR",
+        "currency": "USD",
         "line_items": line_items,
         "payment": {
             "handlers": handlers,
@@ -340,8 +484,41 @@ def checkout() -> str:
         "checkout_session_id": _checkout_session_id,
         "order_total": total_amount,
         "wallet_address": wallet_address,
-        "message": "Send payment to the wallet address above.",
+        "message": (
+            "Sign an EIP-3009 USDC authorisation in your EVM wallet for the amount above, "
+            "then call complete_checkout(x_payment) with the resulting base64 X-PAYMENT string."
+        ),
     })
+
+
+@mcp.tool()
+def complete_checkout(x_payment: str) -> str:
+    """Complete the checkout by submitting a signed x402 EIP-3009 payment proof.
+
+    After checkout() returns the wallet_address and order_total, the user signs a USDC
+    EIP-3009 authorisation in their EVM wallet and receives a base64 X-PAYMENT string.
+    Pass that string here to finalise the order.
+
+    x_payment: base64-encoded X-PAYMENT value produced by the user's EVM wallet.
+    """
+    err = _require_merchant()
+    if err:
+        return json.dumps(err)
+    if not _checkout_session_id:
+        return json.dumps({"error": "No active checkout session. Call checkout() first."})
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            r = client.post(
+                f"{_merchant_base_url}/checkout-sessions/{_checkout_session_id}/complete",
+                headers={**_ucp_headers(), "X-PAYMENT": x_payment},
+            )
+            if r.status_code == 402:
+                return json.dumps({"error": "Payment rejected by merchant.", "detail": r.json()})
+            r.raise_for_status()
+            result = r.json()
+    except httpx.HTTPError as e:
+        return json.dumps({"error": f"Complete checkout failed: {e}"})
+    return json.dumps({"_ui": {"type": "order-confirmation"}, "order": result})
 
 
 if __name__ == "__main__":

@@ -1250,9 +1250,10 @@ class CheckoutService:
       # The token value validation logic is similar to mock_payment_handler
       # for this test. Or just accept any token.
       return
-    elif handler_id == "upi":
-      # UPI: for demo accept any UTR/token. In production verify via gateway.
-      logger.info("Processing UPI payment (demo mode)")
+    elif handler_id == "evm":
+      # EVM/crypto payment. The x402 ASGI middleware already verified the
+      # on-chain payment before this handler runs; token is the tx hash.
+      logger.info("Processing EVM payment, tx: %s", token)
       return
     else:
       # Unknown handler
