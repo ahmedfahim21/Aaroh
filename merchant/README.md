@@ -6,13 +6,13 @@ Web UI for onboarding merchants: upload a catalogue (CSV or Excel) and merchant 
 
 **Terminal 1 – backend** (from repo root; dependencies in root `pyproject.toml`)
 ```bash
-cd web/backend
+cd merchant/backend
 uv run --project ../.. uvicorn main:app --reload --port 8080
 ```
 
 **Terminal 2 – frontend**
 ```bash
-cd web/frontend
+cd merchant/frontend
 npm install
 npm run dev
 ```
@@ -25,4 +25,4 @@ Open http://localhost:5173. The Vite dev server proxies `/api` to the backend on
 
 ## Frontend
 
-- Single page: Merchant name, UPI VPA, drag-and-drop catalogue upload. Submit sends the form to `/api/onboard` and shows success or error.
+- Single page: Merchant name, wallet, drag-and-drop catalogue upload. Submit sends the form to `/api/onboard` and shows success or error.

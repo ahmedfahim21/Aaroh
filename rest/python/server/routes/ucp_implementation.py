@@ -25,13 +25,16 @@ import dependencies
 from fastapi import APIRouter
 from fastapi import Body
 from fastapi import Depends
+from fastapi import HTTPException
 from fastapi import Path
+from fastapi import Request
 from fastapi.routing import APIRoute
 import httpx
 import models
 from models import UnifiedCheckoutCreateRequest
 from pydantic import BaseModel
 from pydantic import HttpUrl
+from routes.x402_checkout import handle_x402_checkout, x402_enabled
 from services.checkout_service import CheckoutService
 from ucp_sdk.models.schemas.shopping.ap2_mandate import Ap2CompleteRequest
 from ucp_sdk.models.schemas.shopping.order import Order
@@ -187,8 +190,7 @@ async def update_checkout(
 
 async def complete_checkout(
   checkout_id: Annotated[str, Path(..., alias="id")],
-  payment_data: Annotated[dict[str, Any], Body(...)],
-  risk_signals: Annotated[dict[str, Any], Body(...)],
+  request: Request,
   common_headers: Annotated[
     dependencies.CommonHeaders, Depends(dependencies.common_headers)
   ],
@@ -196,10 +198,28 @@ async def complete_checkout(
   checkout_service: Annotated[
     CheckoutService, Depends(dependencies.get_checkout_service)
   ],
+  payment_data: Annotated[dict[str, Any] | None, Body()] = None,
+  risk_signals: Annotated[dict[str, Any] | None, Body()] = None,
   ap2: Annotated[Ap2CompleteRequest | None, Body()] = None,
 ) -> dict[str, Any]:
   """Complete Checkout Implementation."""
   del common_headers  # Unused
+
+  if x402_enabled():
+    # Fetch the checkout to get the exact cart total for per-session x402
+    # payment requirements.  Raises HTTPException(402) if payment is absent
+    # or invalid; returns a synthetic EVM instrument dict when verified.
+    checkout_state = await checkout_service.get_checkout(checkout_id)
+    total = next(
+      (t.amount for t in (checkout_state.totals or []) if t.type == "total"),
+      0,
+    )
+    payment_data = await handle_x402_checkout(request, checkout_id, total)
+  elif payment_data is None:
+    raise HTTPException(
+      status_code=422,
+      detail="payment_data is required when x402 is not configured",
+    )
 
   # Map payment_data (single instrument) to PaymentCreateRequest
   instrument = PaymentInstrument(root=payment_data)
@@ -209,7 +229,7 @@ async def complete_checkout(
   )
 
   checkout_result = await checkout_service.complete_checkout(
-    checkout_id, payment_req, risk_signals, idempotency_key, ap2=ap2
+    checkout_id, payment_req, risk_signals or {}, idempotency_key, ap2=ap2
   )
   return checkout_result.model_dump(mode="json", by_alias=True)
 
