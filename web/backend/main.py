@@ -59,7 +59,7 @@ def xlsx_to_csv_bytes(content: bytes) -> bytes:
 @app.post("/api/onboard")
 async def onboard(
     merchant_name: str = Form(..., description="Merchant display name"),
-    merchant_vpa: str = Form(..., description="Merchant UPI VPA (e.g. shop@ybl)"),
+    merchant_wallet: str = Form(..., description="Merchant EVM wallet address (0x...)"),
     catalogue: UploadFile = File(..., description="Catalogue CSV or Excel file"),
 ) -> dict:
     """Run onboard_merchant.py with the uploaded file and form fields."""
@@ -96,8 +96,8 @@ async def onboard(
                 tmp_path,
                 "--merchant-name",
                 merchant_name,
-                "--merchant-vpa",
-                merchant_vpa,
+                "--merchant-wallet",
+                merchant_wallet,
                 "--output-dir",
                 str(output_dir),
             ],

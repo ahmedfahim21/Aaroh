@@ -14,7 +14,6 @@ async function getOrCreateClient() {
 
   const merchantUrl =
     process.env.MCP_MERCHANT_URL || "http://localhost:8000";
-  const merchantVpa = process.env.MCP_MERCHANT_VPA || "artisan@paytm";
   const merchantName = process.env.MCP_MERCHANT_NAME || "Artisan India";
 
   const transport = new StdioClientTransport({
@@ -29,7 +28,6 @@ async function getOrCreateClient() {
     env: {
       ...process.env,
       MERCHANT_URL: merchantUrl,
-      MERCHANT_VPA: merchantVpa,
       MERCHANT_NAME: merchantName,
     } as Record<string, string>,
   });

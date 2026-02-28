@@ -5,14 +5,14 @@ type Status = 'idle' | 'loading' | 'success' | 'error'
 
 export default function OnboardForm() {
   const [merchantName, setMerchantName] = useState('')
-  const [merchantVpa, setMerchantVpa] = useState('')
+  const [merchantWallet, setMerchantWallet] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [message, setMessage] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!merchantName.trim() || !merchantVpa.trim() || !file) {
+    if (!merchantName.trim() || !merchantWallet.trim() || !file) {
       setStatus('error')
       setMessage('Please fill in all fields and upload a catalogue file.')
       return
@@ -23,7 +23,7 @@ export default function OnboardForm() {
 
     const formData = new FormData()
     formData.set('merchant_name', merchantName.trim())
-    formData.set('merchant_vpa', merchantVpa.trim())
+    formData.set('merchant_wallet', merchantWallet.trim())
     formData.set('catalogue', file)
 
     try {
@@ -62,17 +62,17 @@ export default function OnboardForm() {
         />
       </div>
       <div>
-        <label htmlFor="merchant_vpa" className="block text-sm font-medium text-slate-700">
-          Merchant UPI VPA
+        <label htmlFor="merchant_wallet" className="block text-sm font-medium text-slate-700">
+          EVM Wallet Address
         </label>
         <input
-          id="merchant_vpa"
+          id="merchant_wallet"
           type="text"
           required
-          value={merchantVpa}
-          onChange={(e) => setMerchantVpa(e.target.value)}
+          value={merchantWallet}
+          onChange={(e) => setMerchantWallet(e.target.value)}
           className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          placeholder="e.g. shop@ybl"
+          placeholder="e.g. 0x1234...abcd"
         />
       </div>
       <div>

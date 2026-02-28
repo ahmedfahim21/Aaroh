@@ -4,7 +4,7 @@ Merchant onboarding CLI: read a catalogue CSV and produce a UCP-ready data packa
 
 Usage:
   python3 onboard_merchant.py --catalogue demo_data/catalogue.csv \\
-    --merchant-name "Artisan India" --merchant-vpa artisanindia@ybl \\
+    --merchant-name "Artisan India" --merchant-wallet 0x1234abcd... \\
     --output-dir ./deploy/artisan-india
 
 Creates output_dir/data/ with products.csv, inventory.csv, shipping_rates.csv,
@@ -55,9 +55,9 @@ def main() -> None:
     )
     p.add_argument("--merchant-name", required=True, help="Merchant display name")
     p.add_argument(
-        "--merchant-vpa",
+        "--merchant-wallet",
         required=True,
-        help="Merchant UPI VPA (e.g. artisanindia@ybl)",
+        help="Merchant EVM wallet address (e.g. 0x1234...abcd)",
     )
     p.add_argument(
         "--output-dir",
@@ -166,7 +166,7 @@ def main() -> None:
 
         profile_text = (
             template.replace("{{MERCHANT_NAME}}", args.merchant_name)
-            .replace("{{MERCHANT_VPA}}", args.merchant_vpa)
+            .replace("{{MERCHANT_WALLET}}", args.merchant_wallet)
             .replace("{{PRODUCT_CATEGORIES}}", product_categories)
         )
         # Keep {{ENDPOINT}} and {{SHOP_ID}} for server runtime

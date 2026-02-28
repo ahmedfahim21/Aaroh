@@ -51,7 +51,7 @@ async def get_merchant_profile(request: Request):
     template = f.read()
 
   # Get values from environment or use defaults
-  merchant_vpa = os.environ.get("MERCHANT_VPA", "artisan@paytm")
+  merchant_wallet = os.environ.get("MERCHANT_WALLET", "0x0000000000000000000000000000000000000000")
   merchant_name = os.environ.get("MERCHANT_NAME", "Artisan India")
   product_categories = os.environ.get("PRODUCT_CATEGORIES", "Handicrafts, Textiles, Jewelry")
 
@@ -61,8 +61,8 @@ async def get_merchant_profile(request: Request):
     profile_json = profile_json.replace("{{ENDPOINT}}", str(request.base_url).rstrip("/"))
   if "{{SHOP_ID}}" in profile_json:
     profile_json = profile_json.replace("{{SHOP_ID}}", SHOP_ID)
-  if "{{MERCHANT_VPA}}" in profile_json:
-    profile_json = profile_json.replace("{{MERCHANT_VPA}}", merchant_vpa)
+  if "{{MERCHANT_WALLET}}" in profile_json:
+    profile_json = profile_json.replace("{{MERCHANT_WALLET}}", merchant_wallet)
   if "{{MERCHANT_NAME}}" in profile_json:
     profile_json = profile_json.replace("{{MERCHANT_NAME}}", merchant_name)
   if "{{PRODUCT_CATEGORIES}}" in profile_json:

@@ -55,8 +55,8 @@
         "version": "2026-01-11",
         "spec": "https://www.npci.org.in/upi",
         "config": {
-          "vpa": "artisanindia@ybl",
-          "merchant_name": "Artisan India"
+          "vpa": "9411327838@upi",
+          "merchant_name": "Parth Mittal"
         }
       }
     ]

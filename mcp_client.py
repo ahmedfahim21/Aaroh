@@ -13,9 +13,6 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from payment import generate_qr_base64
-from payment import generate_upi_link
-
 mcp = FastMCP(
     "Artisan Commerce",
     instructions="Shopping assistant for UCP merchants. Discover a merchant first, then browse and shop.",
@@ -256,7 +253,7 @@ def remove_from_cart(product_id: str) -> str:
 def _build_create_payload() -> dict[str, Any]:
     handlers = (_merchant_profile or {}).get("payment", {}).get("handlers", [])
     if not handlers:
-        handlers = [{"id": "upi", "name": "in.npci.upi", "version": "2026-01-11", "config": {}}]
+        handlers = [{"id": "evm", "name": "org.ethereum.evm", "version": "2026-01-11", "config": {}}]
     line_items = [
         {
             "item": {"id": item["product_id"], "title": item["title"], "price": item["price"]},
@@ -307,7 +304,7 @@ def _build_create_payload() -> dict[str, Any]:
 
 @mcp.tool()
 def checkout() -> str:
-    """Create a checkout session and return UPI payment link and QR code. Scan the QR or open the link to pay."""
+    """Create a checkout session and return the merchant EVM wallet address and order total for payment."""
     err = _require_merchant()
     if err:
         return json.dumps(err)
@@ -328,79 +325,22 @@ def checkout() -> str:
         return json.dumps({"error": f"Checkout failed: {e}"})
     _checkout_session_id = checkout_data.get("id")
     totals = checkout_data.get("totals", [])
-    total_paise = 0
+    total_amount = 0
     for t in totals:
         if t.get("type") == "total":
-            total_paise = t.get("amount", 0)
+            total_amount = t.get("amount", 0)
             break
     handlers = (_merchant_profile or {}).get("payment", {}).get("handlers", [])
-    vpa = "merchant@ybl"
-    name = "Merchant"
+    wallet_address = None
     for h in handlers:
-        if h.get("id") == "upi" and isinstance(h.get("config"), dict):
-            vpa = h["config"].get("vpa", vpa)
-            name = h["config"].get("merchant_name", name)
-    order_id = _checkout_session_id or "order"
-    upi_link = generate_upi_link(vpa, name, total_paise, order_id)
-    qr_b64 = generate_qr_base64(upi_link)
+        if h.get("id") == "evm" and isinstance(h.get("config"), dict):
+            wallet_address = h["config"].get("wallet_address", wallet_address)
     return json.dumps({
         "_ui": {"type": "checkout"},
         "checkout_session_id": _checkout_session_id,
-        "order_total_paise": total_paise,
-        "upi_link": upi_link,
-        "qr_base64": qr_b64,
-        "message": "After paying, use confirm_payment(utr) with your UTR/reference number.",
-    })
-
-
-@mcp.tool()
-def confirm_payment(utr: str = "") -> str:
-    """Confirm that payment is done and complete the order. Optionally pass UTR/reference from your UPI app."""
-    global _checkout_session_id, _cart
-    err = _require_merchant()
-    if err:
-        return json.dumps(err)
-    if not _checkout_session_id:
-        return json.dumps({"error": "No checkout in progress. Use checkout() first."})
-    # Build card instrument (UCP SDK currently requires card type)
-    # Using simulated card data for demo purposes
-    instrument = {
-        "id": "card_1",
-        "handler_id": "upi",
-        "handler_name": "in.npci.upi",
-        "type": "card",
-        "brand": "visa",
-        "last_digits": "4242",
-        "credential": {"type": "token", "token": utr or "upi_success"},
-    }
-    payload = {
-        "payment_data": instrument,
-        "risk_signals": {},
-    }
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            r = client.post(
-                f"{_merchant_base_url}/checkout-sessions/{_checkout_session_id}/complete",
-                json=payload,
-                headers=_ucp_headers(),
-            )
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPError as e:
-        return json.dumps({"error": f"Complete failed: {e}"})
-    order = data.get("order", {})
-    order_id = order.get("id") if isinstance(order, dict) else (data.get("order") or {}).get("id")
-    if not order_id and isinstance(data.get("order"), dict):
-        order_id = data["order"].get("id")
-    # Reset for next order
-    _checkout_session_id_used = _checkout_session_id
-    _cart = []
-    _checkout_session_id = None
-    return json.dumps({
-        "_ui": {"type": "order-confirmation"},
-        "success": True,
-        "order_id": order_id or _checkout_session_id_used,
-        "message": "Thank you for your payment.",
+        "order_total": total_amount,
+        "wallet_address": wallet_address,
+        "message": "Send payment to the wallet address above.",
     })
 
 
