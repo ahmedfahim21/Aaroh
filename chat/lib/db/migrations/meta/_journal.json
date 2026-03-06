@@ -64,6 +64,13 @@
       "when": 1768479010084,
       "tag": "0008_flat_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1772821183565,
+      "tag": "0009_foamy_grim_reaper",
+      "breakpoints": true
     }
   ]
 }

@@ -52,6 +52,17 @@ export async function getUser(email: string): Promise<User[]> {
   }
 }
 
+export async function getUserByNearAccount(nearAccountId: string): Promise<User[]> {
+  try {
+    return await db.select().from(user).where(eq(user.nearAccountId, nearAccountId));
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to get user by NEAR account"
+    );
+  }
+}
+
 export async function createUser(email: string, password: string) {
   const hashedPassword = generateHashedPassword(password);
 
@@ -75,6 +86,33 @@ export async function createGuestUser() {
     throw new ChatSDKError(
       "bad_request:database",
       "Failed to create guest user"
+    );
+  }
+}
+
+export async function createOrGetNearUser(nearAccountId: string) {
+  try {
+    // Check if user already exists
+    const existingUsers = await getUserByNearAccount(nearAccountId);
+
+    if (existingUsers.length > 0) {
+      return existingUsers;
+    }
+
+    // Create new user with NEAR account
+    return await db.insert(user).values({
+      email: `${nearAccountId}@near.account`,
+      nearAccountId,
+      password: null, // No password for NEAR users
+    }).returning({
+      id: user.id,
+      email: user.email,
+      nearAccountId: user.nearAccountId,
+    });
+  } catch (_error) {
+    throw new ChatSDKError(
+      "bad_request:database",
+      "Failed to create NEAR user"
     );
   }
 }
