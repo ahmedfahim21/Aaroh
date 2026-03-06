@@ -20,7 +20,6 @@ import {
 import { useArtifactSelector } from "@/hooks/use-artifact";
 import { useAutoResume } from "@/hooks/use-auto-resume";
 import { useChatVisibility } from "@/hooks/use-chat-visibility";
-import { useLanguage } from "@/hooks/use-language";
 import type { Vote } from "@/lib/db/schema";
 import { ChatSDKError } from "@/lib/errors";
 import type { Attachment, ChatMessage } from "@/lib/types";
@@ -179,66 +178,7 @@ export function Chat({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
 
-  const {
-    processVoiceInput,
-    translateAssistantMessage,
-    synthesizeAndPlay,
-    getTranslatedText,
-    getTtsAudio,
-    playTtsAudio,
-    stopTtsAudio,
-    isPlaying: isTtsPlaying,
-    isVoiceMode,
-    isProcessing: isVoiceProcessing,
-  } = useLanguage();
-
-  const handleVoiceResult = useCallback(
-    async (blob: Blob) => {
-      const result = await processVoiceInput(blob);
-      if (result?.englishText) {
-        sendMessage({
-          role: "user",
-          parts: [{ type: "text", text: result.englishText }],
-        });
-      }
-    },
-    [processVoiceInput, sendMessage]
-  );
-
   const prevStatusRef = useRef<string>(status);
-  useEffect(() => {
-    if (prevStatusRef.current === "streaming" && status === "ready") {
-      const lastMsg = messages.at(-1);
-      if (lastMsg?.role === "assistant" && isVoiceMode && lastMsg.parts?.length) {
-        translateAssistantMessage(lastMsg).then((result) => {
-          if (!lastMsg) return;
-          const parts = lastMsg.parts ?? [];
-          const textToSpeak =
-            result?.translatedByPart && result.translatedByPart.size > 0
-              ? parts
-                  .map((p, i) =>
-                    p.type === "text"
-                      ? result!.translatedByPart.get(i) ??
-                        ("text" in p ? (p as { text: string }).text : "")
-                      : ""
-                  )
-                  .filter(Boolean)
-                  .join("\n")
-              : parts
-                  .filter((p) => p.type === "text")
-                  .map((p) => ("text" in p ? (p as { text: string }).text : ""))
-                  .filter(Boolean)
-                  .join("\n");
-          if (textToSpeak.trim()) {
-            synthesizeAndPlay(lastMsg.id, textToSpeak.trim());
-          }
-        });
-      } else if (lastMsg?.role === "assistant") {
-        translateAssistantMessage(lastMsg);
-      }
-    }
-    prevStatusRef.current = status;
-  }, [status, messages, isVoiceMode, translateAssistantMessage, synthesizeAndPlay]);
 
   useAutoResume({
     autoResume,
@@ -259,19 +199,13 @@ export function Chat({
         <Messages
           addToolApprovalResponse={addToolApprovalResponse}
           chatId={id}
-          getTtsAudio={getTtsAudio}
-          getTranslatedText={getTranslatedText}
           isArtifactVisible={isArtifactVisible}
           isReadonly={isReadonly}
           messages={messages}
-          isTtsPlaying={isTtsPlaying}
-          playTtsAudio={playTtsAudio}
-          stopTtsAudio={stopTtsAudio}
           regenerate={regenerate}
           selectedModelId={initialChatModel}
           setMessages={setMessages}
           status={status}
-          synthesizeAndPlay={synthesizeAndPlay}
           votes={votes}
         />
 
@@ -281,10 +215,8 @@ export function Chat({
               attachments={attachments}
               chatId={id}
               input={input}
-              isVoiceProcessing={isVoiceProcessing}
               messages={messages}
               onModelChange={setCurrentModelId}
-              onVoiceResult={handleVoiceResult}
               selectedModelId={currentModelId}
               selectedVisibilityType={visibilityType}
               sendMessage={sendMessage}
