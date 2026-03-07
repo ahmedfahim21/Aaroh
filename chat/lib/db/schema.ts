@@ -16,6 +16,7 @@ export const user = pgTable("User", {
   email: varchar("email", { length: 64 }).notNull(),
   password: varchar("password", { length: 64 }),
   nearAccountId: varchar("nearAccountId", { length: 128 }),
+  storagePreference: varchar("storagePreference", { enum: ["postgres", "near"] }).default("postgres"),
 });
 
 export type User = InferSelectModel<typeof user>;

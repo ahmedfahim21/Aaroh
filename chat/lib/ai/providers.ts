@@ -1,8 +1,6 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
 import {
   customProvider,
-  extractReasoningMiddleware,
-  wrapLanguageModel,
 } from "ai";
 import { isTestEnvironment } from "../constants";
 
@@ -30,29 +28,19 @@ export function getLanguageModel(modelId: string) {
     return myProvider.languageModel(modelId);
   }
 
-  const isReasoningModel =
-    modelId.includes("reasoning") || modelId.endsWith("-thinking");
-
-  if (isReasoningModel) {
-    return wrapLanguageModel({
-      model: anthropic(modelId),
-      middleware: extractReasoningMiddleware({ tagName: "thinking" }),
-    });
-  }
-
-  return anthropic(modelId);
+  return google(modelId);
 }
 
 export function getTitleModel() {
   if (isTestEnvironment && myProvider) {
     return myProvider.languageModel("title-model");
   }
-  return anthropic("claude-haiku-4-5-20251001");
+  return google("gemini-2.5-flash");
 }
 
 export function getArtifactModel() {
   if (isTestEnvironment && myProvider) {
     return myProvider.languageModel("artifact-model");
   }
-  return anthropic("claude-haiku-4-5-20251001");
+  return google("gemini-2.5-flash");
 }

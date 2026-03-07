@@ -1,4 +1,4 @@
-export const DEFAULT_CHAT_MODEL = "claude-sonnet-4-5-20250929";
+export const DEFAULT_CHAT_MODEL = "gemini-2.5-flash";
 
 export type ChatModel = {
   id: string;
@@ -9,22 +9,22 @@ export type ChatModel = {
 
 export const chatModels: ChatModel[] = [
   {
-    id: "claude-haiku-4-5-20251001",
-    name: "Claude Haiku 4.5",
-    provider: "anthropic",
-    description: "Fast and affordable, great for everyday tasks",
+    id: "gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    provider: "google",
+    description: "Fast and multimodal, great for shopping assistance",
   },
   {
-    id: "claude-sonnet-4-5-20250929",
-    name: "Claude Sonnet 4.5",
-    provider: "anthropic",
-    description: "Best balance of speed, intelligence, and cost",
+    id: "gemini-3.1-pro-preview",
+    name: "Gemini 3.1 Pro",
+    provider: "google",
+    description: "Advanced reasoning, large context window",
   },
   {
-    id: "claude-opus-4-6",
-    name: "Claude Opus 4.6",
-    provider: "anthropic",
-    description: "Most capable Anthropic model",
+    id: "gemini-3.1-flash-lite-preview",
+    name: "Gemini 3.1 Flash Lite",
+    provider: "google",
+    description: "Quick responses, optimized for speed",
   },
 ];
 

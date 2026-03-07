@@ -71,6 +71,13 @@
       "when": 1772821183565,
       "tag": "0009_foamy_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1772872365186,
+      "tag": "0010_fine_hemingway",
+      "breakpoints": true
     }
   ]
 }

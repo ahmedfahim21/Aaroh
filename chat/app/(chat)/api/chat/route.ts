@@ -15,7 +15,6 @@ import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { getMCPTools } from "@/lib/ai/mcp";
 import { createDocument } from "@/lib/ai/tools/create-document";
-import { getWeather } from "@/lib/ai/tools/get-weather";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
@@ -131,10 +130,6 @@ export async function POST(request: Request) {
       });
     }
 
-    const isReasoningModel =
-      selectedChatModel.includes("reasoning") ||
-      selectedChatModel.includes("thinking");
-
     const modelMessages = await convertToModelMessages(uiMessages);
 
     const mcpTools = await getMCPTools();
@@ -147,25 +142,14 @@ export async function POST(request: Request) {
           model: getLanguageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages: modelMessages,
-          stopWhen: stepCountIs(5),
-          experimental_activeTools: isReasoningModel
-            ? []
-            : [
-                "getWeather",
-                "createDocument",
-                "updateDocument",
-                "requestSuggestions",
-                ...mcpToolNames,
-              ],
-          providerOptions: isReasoningModel
-            ? {
-                anthropic: {
-                  thinking: { type: "enabled", budgetTokens: 10_000 },
-                },
-              }
-            : undefined,
+          maxSteps: 5,
+          experimental_activeTools: [
+            "createDocument",
+            "updateDocument",
+            "requestSuggestions",
+            ...mcpToolNames,
+          ],
           tools: {
-            getWeather,
             createDocument: createDocument({ session, dataStream }),
             updateDocument: updateDocument({ session, dataStream }),
             requestSuggestions: requestSuggestions({ session, dataStream }),
@@ -177,7 +161,7 @@ export async function POST(request: Request) {
           },
         });
 
-        dataStream.merge(result.toUIMessageStream({ sendReasoning: true }));
+        dataStream.merge(result.toUIMessageStream());
 
         if (titlePromise) {
           const title = await titlePromise;

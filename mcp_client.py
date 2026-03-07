@@ -11,10 +11,12 @@ Checkout flow (x402 crypto payments):
   3. complete_checkout(x_payment) – posts the signed payment; returns order confirmation
 """
 
+import base64
 import concurrent.futures
 import json
 import os
 import re
+import time
 import uuid
 from typing import Any
 
@@ -31,6 +33,14 @@ _merchant_base_url: str | None = os.environ.get("MERCHANT_URL", "").rstrip("/") 
 _merchant_profile: dict[str, Any] | None = None
 _cart: list[dict[str, Any]] = []  # [{ "product_id", "title", "price", "quantity" }]
 _checkout_session_id: str | None = None
+
+# NEAR configuration for cart persistence
+_near_account_id: str | None = os.environ.get("NEAR_ACCOUNT_ID")
+_near_network: str = os.environ.get("NEAR_NETWORK", "testnet")
+_near_rpc_url: str = (
+    "https://rpc.mainnet.near.org" if _near_network == "mainnet"
+    else "https://rpc.testnet.near.org"
+)
 
 
 def _auto_discover():
@@ -65,6 +75,114 @@ def _ucp_headers() -> dict[str, str]:
         "Request-Id": str(uuid.uuid4()),
         "Content-Type": "application/json",
     }
+
+
+def _sync_cart_to_near() -> dict[str, Any] | None:
+    """Sync current cart to NEAR storage. Returns error dict if fails, None if success."""
+    if not _near_account_id:
+        return None  # Silently skip if NEAR not configured
+
+    if not _cart:
+        # Empty cart - still sync to clear on NEAR
+        cart_data = {
+            "items": [],
+            "merchant_url": _merchant_base_url or "",
+            "updated_at": int(time.time() * 1_000_000_000),  # nanoseconds
+        }
+    else:
+        # Format cart items for NEAR contract
+        cart_data = {
+            "items": [
+                {
+                    "product_id": item["product_id"],
+                    "quantity": item["quantity"],
+                    "merchant_name": _merchant_profile.get("merchant", {}).get("name", "") if _merchant_profile else "",
+                    "title": item.get("title", ""),
+                    "price": item.get("price", 0.0),
+                }
+                for item in _cart
+            ],
+            "merchant_url": _merchant_base_url or "",
+            "updated_at": int(time.time() * 1_000_000_000),
+        }
+
+    # Call NEAR contract via JSON-RPC
+    contract_id = f"ai-memory.{_near_account_id}"
+
+    rpc_payload = {
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "query",
+        "params": {
+            "request_type": "call_function",
+            "finality": "final",
+            "account_id": contract_id,
+            "method_name": "save_cart",
+            "args_base64": base64.b64encode(
+                json.dumps({"cart": cart_data}).encode()
+            ).decode(),
+        },
+    }
+
+    try:
+        timeout = httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0)
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(_near_rpc_url, json=rpc_payload)
+            response.raise_for_status()
+            result = response.json()
+
+            if "error" in result:
+                return {
+                    "error": f"NEAR RPC error: {result['error'].get('message', 'Unknown error')}"
+                }
+
+            return None  # Success
+
+    except Exception as e:
+        # Log but don't fail the cart operation
+        print(f"Warning: Failed to sync cart to NEAR: {e}")
+        return None  # Don't propagate NEAR errors to user
+
+
+def _restore_cart_from_near() -> dict[str, Any] | None:
+    """Restore cart from NEAR storage. Returns cart data or None."""
+    if not _near_account_id:
+        return None
+
+    contract_id = f"ai-memory.{_near_account_id}"
+
+    rpc_payload = {
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "query",
+        "params": {
+            "request_type": "call_function",
+            "finality": "final",
+            "account_id": contract_id,
+            "method_name": "get_cart",
+            "args_base64": base64.b64encode(b"{}").decode(),
+        },
+    }
+
+    try:
+        timeout = httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0)
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(_near_rpc_url, json=rpc_payload)
+            response.raise_for_status()
+            result = response.json()
+
+            if "error" in result:
+                return None
+
+            # Decode result from base64
+            result_bytes = base64.b64decode(result["result"]["result"])
+            cart_data = json.loads(result_bytes.decode())
+
+            return cart_data if cart_data else None
+
+    except Exception as e:
+        print(f"Warning: Failed to restore cart from NEAR: {e}")
+        return None
 
 
 def _probe_merchant(url: str) -> dict[str, Any] | None:
@@ -125,7 +243,7 @@ def discover_merchant(merchant_url: str) -> str:
 
     Call this first with the merchant's base URL (e.g. http://localhost:8000).
     """
-    global _merchant_base_url, _merchant_profile
+    global _merchant_base_url, _merchant_profile, _cart
     url = merchant_url.rstrip("/")
     try:
         with httpx.Client(timeout=10.0) as client:
@@ -139,7 +257,23 @@ def discover_merchant(merchant_url: str) -> str:
     handlers = _merchant_profile.get("payment", {}).get("handlers", [])
     name = _merchant_profile.get("merchant", {}).get("name", "Merchant")
     categories = _merchant_profile.get("merchant", {}).get("product_categories", "")
-    return json.dumps({
+
+    # Automatically restore cart from NEAR if configured and cart is empty
+    restored_items = 0
+    if _near_account_id and not _cart:
+        cart_data = _restore_cart_from_near()
+        if cart_data and cart_data.get("items"):
+            # Restore cart items
+            for item in cart_data["items"]:
+                _cart.append({
+                    "product_id": item["product_id"],
+                    "title": item.get("title", ""),
+                    "price": item.get("price", 0.0),
+                    "quantity": item["quantity"],
+                })
+            restored_items = len(_cart)
+
+    response = {
         "success": True,
         "merchant": {
             "name": name,
@@ -149,7 +283,14 @@ def discover_merchant(merchant_url: str) -> str:
             "product_categories": categories or None,
         },
         "message": "You can now use browse_categories, search_products, get_product, add_to_cart, etc.",
-    })
+    }
+
+    if restored_items > 0:
+        response["cart_restored"] = True
+        response["restored_items"] = restored_items
+        response["message"] += f" (Restored {restored_items} item(s) from your previous session)"
+
+    return json.dumps(response)
 
 
 @mcp.tool()
@@ -258,6 +399,8 @@ def add_to_cart(product_id: str, quantity: int = 1) -> str:
     for item in _cart:
         if item["product_id"] == product_id:
             item["quantity"] += quantity
+            # Sync to NEAR after cart modification
+            _sync_cart_to_near()
             return view_cart()
     _cart.append({
         "product_id": p["id"],
@@ -265,6 +408,8 @@ def add_to_cart(product_id: str, quantity: int = 1) -> str:
         "price": p["price"],
         "quantity": quantity,
     })
+    # Sync to NEAR after cart modification
+    _sync_cart_to_near()
     return view_cart()
 
 
@@ -297,6 +442,8 @@ def update_cart(product_id: str, quantity: int) -> str:
                 _cart.pop(i)
             else:
                 item["quantity"] = quantity
+            # Sync to NEAR after cart modification
+            _sync_cart_to_near()
             return view_cart()
     return json.dumps({"error": f"Product {product_id!r} not in cart."})
 
@@ -305,6 +452,43 @@ def update_cart(product_id: str, quantity: int) -> str:
 def remove_from_cart(product_id: str) -> str:
     """Remove a product from the cart."""
     return update_cart(product_id, 0)
+
+
+@mcp.tool()
+def restore_cart_from_near() -> str:
+    """Restore cart from NEAR blockchain storage. Useful if you want to recover your cart from a previous session."""
+    global _cart
+
+    if not _near_account_id:
+        return json.dumps({
+            "error": "NEAR not configured. Set NEAR_ACCOUNT_ID environment variable.",
+            "current_cart": _cart,
+        })
+
+    cart_data = _restore_cart_from_near()
+
+    if not cart_data or not cart_data.get("items"):
+        return json.dumps({
+            "message": "No cart found in NEAR storage.",
+            "current_cart": _cart,
+        })
+
+    # Restore cart items from NEAR
+    _cart.clear()
+    for item in cart_data["items"]:
+        _cart.append({
+            "product_id": item["product_id"],
+            "title": item.get("title", ""),
+            "price": item.get("price", 0.0),
+            "quantity": item["quantity"],
+        })
+
+    return json.dumps({
+        "success": True,
+        "message": f"Restored {len(_cart)} item(s) from NEAR storage.",
+        "merchant_url": cart_data.get("merchant_url", ""),
+        "cart": _cart,
+    })
 
 
 @mcp.tool()
