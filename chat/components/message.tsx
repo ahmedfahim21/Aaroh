@@ -24,6 +24,7 @@ import { MessageEditor } from "./message-editor";
 import { MessageReasoning } from "./message-reasoning";
 import { CartView } from "./commerce/cart-view";
 import { CheckoutView } from "./commerce/checkout-view";
+import { X402Payment } from "./commerce/x402-payment";
 import { OrderConfirmation } from "./commerce/order-confirmation";
 import { ProductCard } from "./commerce/product-card";
 import { ProductGrid } from "./commerce/product-grid";
@@ -487,9 +488,15 @@ const PurePreviewMessage = ({
                       </div>
                     );
                   case "checkout":
+                    // Check if it's x402 crypto payment or traditional UPI
+                    const hasWallet = data && "wallet_address" in data;
                     return (
                       <div className="w-full" key={dynamicPart.toolCallId}>
-                        <CheckoutView data={data as Parameters<typeof CheckoutView>[0]["data"]} />
+                        {hasWallet ? (
+                          <X402Payment data={data as Parameters<typeof X402Payment>[0]["data"]} />
+                        ) : (
+                          <CheckoutView data={data as Parameters<typeof CheckoutView>[0]["data"]} />
+                        )}
                       </div>
                     );
                   case "order-confirmation":
@@ -581,9 +588,15 @@ const PurePreviewMessage = ({
                       </div>
                     );
                   case "checkout":
+                    // Check if it's x402 crypto payment or traditional UPI
+                    const isX402Payment = data && "wallet_address" in data;
                     return (
                       <div className="w-full" key={toolCallId}>
-                        <CheckoutView data={data as Parameters<typeof CheckoutView>[0]["data"]} />
+                        {isX402Payment ? (
+                          <X402Payment data={data as Parameters<typeof X402Payment>[0]["data"]} />
+                        ) : (
+                          <CheckoutView data={data as Parameters<typeof CheckoutView>[0]["data"]} />
+                        )}
                       </div>
                     );
                   case "order-confirmation":

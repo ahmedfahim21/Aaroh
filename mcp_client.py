@@ -107,7 +107,8 @@ def _sync_cart_to_near() -> dict[str, Any] | None:
         }
 
     # Call NEAR contract via JSON-RPC
-    contract_id = f"ai-memory.{_near_account_id}"
+    # Use NEAR_CONTRACT_ID if set, otherwise default to account_id
+    contract_id = os.environ.get("NEAR_CONTRACT_ID", _near_account_id)
 
     rpc_payload = {
         "jsonrpc": "2.0",
@@ -149,7 +150,8 @@ def _restore_cart_from_near() -> dict[str, Any] | None:
     if not _near_account_id:
         return None
 
-    contract_id = f"ai-memory.{_near_account_id}"
+    # Use NEAR_CONTRACT_ID if set, otherwise default to account_id
+    contract_id = os.environ.get("NEAR_CONTRACT_ID", _near_account_id)
 
     rpc_payload = {
         "jsonrpc": "2.0",

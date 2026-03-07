@@ -1,7 +1,8 @@
 import { getMCPTools } from "@/lib/ai/mcp";
 
 export async function GET() {
-  const tools = await getMCPTools();
+  // Use a default session ID for tool listing (not tied to specific chat)
+  const tools = await getMCPTools("_tools_list");
   const toolNames = Object.keys(tools);
 
   return Response.json({

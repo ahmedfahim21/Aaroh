@@ -1,7 +1,7 @@
-use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
+use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey, PanicOnDefault};
+use near_sdk::{env, near, AccountId, BorshStorageKey, PanicOnDefault};
 
 /// Storage keys for different collections
 #[derive(BorshStorageKey, BorshSerialize)]
@@ -91,8 +91,8 @@ pub struct ShoppingCart {
 }
 
 /// Main contract structure
-#[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
+#[near(contract_state)]
+#[derive(PanicOnDefault)]
 pub struct AiMemory {
     /// Owner of this memory contract (NEAR account)
     owner: AccountId,
@@ -107,7 +107,7 @@ pub struct AiMemory {
     cart: Option<ShoppingCart>,
 }
 
-#[near_bindgen]
+#[near]
 impl AiMemory {
     /// Initialize the contract
     #[init]

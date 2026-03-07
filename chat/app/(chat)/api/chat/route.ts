@@ -132,7 +132,8 @@ export async function POST(request: Request) {
 
     const modelMessages = await convertToModelMessages(uiMessages);
 
-    const mcpTools = await getMCPTools();
+    // Each chat gets its own MCP client to avoid shared state
+    const mcpTools = await getMCPTools(id, session);
     const mcpToolNames = Object.keys(mcpTools);
 
     const stream = createUIMessageStream({
