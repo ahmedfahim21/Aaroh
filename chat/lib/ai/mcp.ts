@@ -40,7 +40,7 @@ async function getOrCreateClient(sessionId: string, session?: { user?: { nearAcc
       ...(nearAccountId && {
         NEAR_ACCOUNT_ID: nearAccountId,
         NEAR_NETWORK: nearNetwork,
-        NEAR_CONTRACT_ID: nearAccountId, // Each user has their own contract
+        NEAR_CONTRACT_ID: 'aaroh-commerce.testnet',
       }),
     } as Record<string, string>,
   });
