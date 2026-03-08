@@ -90,6 +90,7 @@ flowchart TB
 | **Chat Client** | [`chat/`](chat/) | Next.js AI chat with MCP integration, multilingual support |
 | **Onboarding Web App** | [`web/`](web/) | React + FastAPI merchant onboarding UI ("Saarthi") |
 | **Multilingual / Voice** | [`sarvam/`](sarvam/) | Sarvam AI integration — ASR, TTS, translation, language detection |
+| **NEAR Smart Contract** | [`contracts/ai-memory-js/`](contracts/ai-memory-js/) | Multi-user blockchain storage for carts, conversations, and profiles |
 | **Demo Data** | [`demo_data/`](demo_data/) | Sample Indian artisan catalogue (textiles, pottery, spices, jewelry) |
 
 ## Quick Start
@@ -237,6 +238,48 @@ Your product catalogue CSV needs these columns:
 | `origin_state` | No | State of origin |
 | `artisan_name` | No | Artisan / maker name |
 | `inventory_quantity` | No | Stock count (default: 100) |
+
+## NEAR Blockchain Integration
+
+This project includes a **multi-user NEAR smart contract** for decentralized storage of:
+- Shopping carts
+- Conversation history
+- User profiles and preferences
+
+### Deployed Contract
+
+- **Account:** `aaroh-commerce.testnet`
+- **Network:** NEAR Testnet
+- **Language:** JavaScript (near-sdk-js)
+
+### Features
+
+✅ **Per-User Data Isolation** - Each user's data automatically segregated by AccountId
+✅ **Shopping Cart Persistence** - Carts saved on-chain, survive browser refresh
+✅ **Conversation Storage** - AI chat history stored on blockchain
+✅ **Profile Management** - Encrypted user preferences and AI context
+✅ **Multi-User Support** - Unlimited users, each with isolated storage
+
+### Documentation
+
+See **[NEAR_SMART_CONTRACT_GUIDE.md](NEAR_SMART_CONTRACT_GUIDE.md)** for:
+- Complete API reference
+- Setup and configuration
+- Testing multi-user isolation
+- MCP integration details
+- Deployment instructions
+
+### Environment Variables
+
+Add to your `.env`:
+
+```bash
+NEAR_CONTRACT_ID=aaroh-commerce.testnet
+NEAR_RPC_URL=https://rpc.testnet.near.org
+NEAR_NETWORK=testnet
+```
+
+**Note:** `NEAR_ACCOUNT_ID` is passed dynamically from user session when they sign in with NEAR wallet.
 
 ## License
 

@@ -80,7 +80,10 @@ def _ucp_headers() -> dict[str, str]:
 def _sync_cart_to_near() -> dict[str, Any] | None:
     """Sync current cart to NEAR storage. Returns error dict if fails, None if success."""
     if not _near_account_id:
+        print(f"[NEAR SYNC] Skipped - NEAR_ACCOUNT_ID not set")
         return None  # Silently skip if NEAR not configured
+
+    print(f"[NEAR SYNC] Starting sync for account: {_near_account_id}")
 
     if not _cart:
         # Empty cart - still sync to clear on NEAR
@@ -127,21 +130,27 @@ def _sync_cart_to_near() -> dict[str, Any] | None:
 
     try:
         timeout = httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0)
+        print(f"[NEAR SYNC] Calling contract {contract_id} at {_near_rpc_url}")
         with httpx.Client(timeout=timeout) as client:
             response = client.post(_near_rpc_url, json=rpc_payload)
             response.raise_for_status()
             result = response.json()
 
             if "error" in result:
+                error_msg = f"NEAR RPC error: {result['error'].get('message', 'Unknown error')}"
+                print(f"[NEAR SYNC] ERROR: {error_msg}")
                 return {
-                    "error": f"NEAR RPC error: {result['error'].get('message', 'Unknown error')}"
+                    "error": error_msg
                 }
 
+            print(f"[NEAR SYNC] SUCCESS: Cart synced to NEAR")
             return None  # Success
 
     except Exception as e:
         # Log but don't fail the cart operation
-        print(f"Warning: Failed to sync cart to NEAR: {e}")
+        print(f"[NEAR SYNC] Exception: Failed to sync cart to NEAR: {e}")
+        import traceback
+        traceback.print_exc()
         return None  # Don't propagate NEAR errors to user
 
 
@@ -162,7 +171,9 @@ def _restore_cart_from_near() -> dict[str, Any] | None:
             "finality": "final",
             "account_id": contract_id,
             "method_name": "get_cart",
-            "args_base64": base64.b64encode(b"{}").decode(),
+            "args_base64": base64.b64encode(
+                json.dumps({"account_id": _near_account_id}).encode()
+            ).decode(),
         },
     }
 
@@ -454,6 +465,28 @@ def update_cart(product_id: str, quantity: int) -> str:
 def remove_from_cart(product_id: str) -> str:
     """Remove a product from the cart."""
     return update_cart(product_id, 0)
+
+
+@mcp.tool()
+def check_near_status() -> str:
+    """Check NEAR integration status and configuration."""
+    status = {
+        "near_configured": _near_account_id is not None,
+        "near_account_id": _near_account_id,
+        "near_network": _near_network,
+        "near_contract_id": os.environ.get("NEAR_CONTRACT_ID", _near_account_id),
+        "cart_items_count": len(_cart),
+        "has_merchant": _merchant_base_url is not None,
+    }
+
+    if not _near_account_id:
+        status["message"] = "❌ NEAR not configured. Please sign in with NEAR wallet in the chat app."
+        status["instructions"] = "Look for 'Sign in with NEAR' button in the UI to enable blockchain cart persistence."
+    else:
+        status["message"] = f"✅ NEAR configured for account: {_near_account_id}"
+        status["contract_address"] = status["near_contract_id"]
+
+    return json.dumps(status, indent=2)
 
 
 @mcp.tool()

@@ -1,0 +1,17 @@
+{
+  "name": "ai-memory",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "near-sdk-js build src/contract.js build/contract.wasm",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "near-sdk-js": "^2.0.0"
+  }
+}
