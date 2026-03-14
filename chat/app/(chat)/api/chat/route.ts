@@ -135,6 +135,9 @@ export async function POST(request: Request) {
     // Each chat gets its own MCP client to avoid shared state
     const mcpTools = await getMCPTools(id, session);
     const mcpToolNames = Object.keys(mcpTools);
+    if (mcpToolNames.length === 0) {
+      console.warn("[Chat] No MCP tools loaded for chat", id, "- MCP client may have failed to start");
+    }
 
     const stream = createUIMessageStream({
       originalMessages: isToolApprovalFlow ? uiMessages : undefined,
@@ -208,7 +211,10 @@ export async function POST(request: Request) {
           });
         }
       },
-      onError: () => "Oops, an error occurred!",
+      onError: (error) => {
+        console.error("[Chat stream error]:", error);
+        return "Oops, an error occurred!";
+      },
     });
 
     return createUIMessageStreamResponse({

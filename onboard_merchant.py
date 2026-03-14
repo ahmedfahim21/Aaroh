@@ -35,12 +35,12 @@ OPTIONAL_COLUMNS = {
 
 DEFAULT_INVENTORY = 100
 
-# Indian domestic shipping rates (price in paise)
+# Shipping rates (price in USD cents)
 INDIAN_SHIPPING_RATES = [
-    ("std-in", "IN", "standard", 5000, "Standard Shipping (India)"),
-    ("exp-in", "IN", "express", 12000, "Express Shipping (India)"),
-    ("std-default", "default", "standard", 5000, "Standard Shipping"),
-    ("exp-default", "default", "express", 15000, "International Express"),
+    ("std-in", "IN", "standard", 500, "Standard Shipping (India)"),
+    ("exp-in", "IN", "express", 1200, "Express Shipping (India)"),
+    ("std-default", "default", "standard", 500, "Standard Shipping"),
+    ("exp-default", "default", "express", 1500, "International Express"),
 ]
 
 

@@ -40,9 +40,22 @@ export async function initNearWallet(): Promise<{
   });
 
   // Setup modal for wallet selection UI
+  // Requesting a function call access key for the AI memory contract
+  // so the browser can sign save_cart / save_conversation calls automatically
+  const contractId =
+    process.env.NEXT_PUBLIC_NEAR_CONTRACT_ID || "aaroh-commerce.testnet";
   modal = setupModal(walletSelector, {
-    contractId: "", // No contract needed for authentication
+    contractId,
     description: "Sign in with your NEAR account to access secure AI memory",
+    methodNames: [
+      "save_cart",
+      "clear_cart",
+      "save_conversation",
+      "delete_conversation",
+      "append_messages",
+      "set_profile_field",
+      "update_ai_context",
+    ],
   });
 
   return { selector: walletSelector, modal };

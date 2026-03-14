@@ -203,7 +203,7 @@ export function X402Payment({
             <Button
               onClick={connectWallet}
               className="w-full gap-2"
-              disabled={state === "connect-wallet"}
+              disabled={state === "submitting"}
             >
               <WalletIcon className="h-4 w-4" />
               Connect MetaMask

@@ -7,18 +7,18 @@ import { Badge } from "@/components/ui/badge";
 import { ShoppingCartIcon, PlusIcon, MinusIcon, CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const INR = new Intl.NumberFormat("en-IN", {
+const USDC = new Intl.NumberFormat("en-US", {
   style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-  minimumFractionDigits: 0,
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 export type ProductData = {
   id: string;
   title: string;
-  price?: number;
-  price_rs?: number;
+  price?: number;       // cents
+  price_usd?: number;   // dollars (pre-divided)
   category?: string | null;
   origin_state?: string | null;
   artisan_name?: string | null;
@@ -48,7 +48,7 @@ export function ProductCard({
   const [isAdding, setIsAdding] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
 
-  const priceRs = data.price_rs ?? (data.price != null ? data.price / 100 : 0);
+  const priceUsd = data.price_usd ?? (data.price != null ? data.price / 100 : 0);
   const description = data.description?.trim();
   const showMeta = data.artisan_name || data.origin_state;
 
@@ -126,7 +126,7 @@ export function ProductCard({
         </CardHeader>
         <CardContent className="mt-auto space-y-3 p-4 pt-2">
           <p className="font-semibold text-lg text-foreground">
-            {INR.format(priceRs)}
+            {USDC.format(priceUsd)}
           </p>
           {description && (
             <p

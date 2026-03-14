@@ -4,27 +4,28 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PlusIcon, MinusIcon, TrashIcon, ShoppingBagIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNearCartSync } from "@/hooks/use-near-cart-sync";
 
-const INR = new Intl.NumberFormat("en-IN", {
+const USDC = new Intl.NumberFormat("en-US", {
   style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-  minimumFractionDigits: 0,
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 export type CartItemData = {
   product_id: string;
   title: string;
   quantity: number;
-  price_paise: number;
-  line_total_paise: number;
+  price_cents: number;
+  line_total_cents: number;
   image_url?: string;
 };
 
 export type CartViewData = {
   _ui?: { type: string };
   items: CartItemData[];
-  total_paise: number;
+  total_cents: number;
   message?: string;
   can_checkout?: boolean;
 };
@@ -45,8 +46,11 @@ export function CartView({
   onCheckout,
 }: CartViewProps) {
   const items = data.items ?? [];
-  const totalPaise = data.total_paise ?? 0;
+  const totalPaise = data.total_cents ?? 0;
   const canCheckout = data.can_checkout !== false;
+
+  // Sync cart to NEAR whenever it changes (no-op if not signed in with NEAR)
+  useNearCartSync(data);
 
   if (items.length === 0) {
     return (
@@ -106,7 +110,7 @@ export function CartView({
                 {item.title}
               </p>
               <p className="text-muted-foreground text-xs">
-                {INR.format(item.price_paise / 100)} each
+                {USDC.format(item.price_cents / 100)} each
               </p>
 
               <div className="flex items-center gap-2">
@@ -155,7 +159,7 @@ export function CartView({
 
             <div className="shrink-0 text-right">
               <p className="font-semibold text-sm text-foreground">
-                {INR.format(item.line_total_paise / 100)}
+                {USDC.format(item.line_total_cents / 100)}
               </p>
             </div>
           </li>
@@ -166,7 +170,7 @@ export function CartView({
         <div className="flex items-center justify-between px-4 py-3">
           <span className="font-medium text-muted-foreground">Subtotal</span>
           <span className="font-semibold text-lg text-foreground">
-            {INR.format(totalPaise / 100)}
+            {USDC.format(totalPaise / 100)}
           </span>
         </div>
 
@@ -179,7 +183,7 @@ export function CartView({
             >
               Proceed to Checkout
               <span className="font-semibold">
-                {INR.format(totalPaise / 100)}
+                {USDC.format(totalPaise / 100)}
               </span>
             </Button>
           </div>

@@ -46,6 +46,10 @@ async function getOrCreateClient(sessionId: string, session?: { user?: { nearAcc
   });
 
   const client = await createMCPClient({ transport });
+  console.log(`[MCP] Client created for session ${sessionId}`, {
+    nearAccountId: nearAccountId ?? "(none)",
+    merchantUrl,
+  });
 
   // Store client for this session
   mcpClients.set(sessionId, client);
@@ -59,10 +63,12 @@ export async function getMCPTools(
 ) {
   try {
     const client = await getOrCreateClient(sessionId, session);
-    return await client.tools();
+    const tools = await client.tools();
+    console.log(`[MCP] Loaded ${Object.keys(tools).length} tools for session ${sessionId}:`, Object.keys(tools));
+    return tools;
   } catch (error) {
-    console.error("Failed to get MCP tools:", error);
-    // Remove failed client from cache
+    console.error("[MCP] Failed to get MCP tools for session", sessionId, ":", error);
+    // Remove failed client from cache so next request retries
     mcpClients.delete(sessionId);
     return {};
   }

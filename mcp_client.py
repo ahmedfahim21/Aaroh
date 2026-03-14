@@ -16,7 +16,6 @@ import concurrent.futures
 import json
 import os
 import re
-import time
 import uuid
 from typing import Any
 
@@ -77,81 +76,11 @@ def _ucp_headers() -> dict[str, str]:
     }
 
 
-def _sync_cart_to_near() -> dict[str, Any] | None:
-    """Sync current cart to NEAR storage. Returns error dict if fails, None if success."""
-    if not _near_account_id:
-        print(f"[NEAR SYNC] Skipped - NEAR_ACCOUNT_ID not set")
-        return None  # Silently skip if NEAR not configured
-
-    print(f"[NEAR SYNC] Starting sync for account: {_near_account_id}")
-
-    if not _cart:
-        # Empty cart - still sync to clear on NEAR
-        cart_data = {
-            "items": [],
-            "merchant_url": _merchant_base_url or "",
-            "updated_at": int(time.time() * 1_000_000_000),  # nanoseconds
-        }
-    else:
-        # Format cart items for NEAR contract
-        cart_data = {
-            "items": [
-                {
-                    "product_id": item["product_id"],
-                    "quantity": item["quantity"],
-                    "merchant_name": _merchant_profile.get("merchant", {}).get("name", "") if _merchant_profile else "",
-                    "title": item.get("title", ""),
-                    "price": item.get("price", 0.0),
-                }
-                for item in _cart
-            ],
-            "merchant_url": _merchant_base_url or "",
-            "updated_at": int(time.time() * 1_000_000_000),
-        }
-
-    # Call NEAR contract via JSON-RPC
-    # Use NEAR_CONTRACT_ID if set, otherwise default to account_id
-    contract_id = os.environ.get("NEAR_CONTRACT_ID", _near_account_id)
-
-    rpc_payload = {
-        "jsonrpc": "2.0",
-        "id": "dontcare",
-        "method": "query",
-        "params": {
-            "request_type": "call_function",
-            "finality": "final",
-            "account_id": contract_id,
-            "method_name": "save_cart",
-            "args_base64": base64.b64encode(
-                json.dumps({"cart": cart_data}).encode()
-            ).decode(),
-        },
-    }
-
-    try:
-        timeout = httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0)
-        print(f"[NEAR SYNC] Calling contract {contract_id} at {_near_rpc_url}")
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(_near_rpc_url, json=rpc_payload)
-            response.raise_for_status()
-            result = response.json()
-
-            if "error" in result:
-                error_msg = f"NEAR RPC error: {result['error'].get('message', 'Unknown error')}"
-                print(f"[NEAR SYNC] ERROR: {error_msg}")
-                return {
-                    "error": error_msg
-                }
-
-            print(f"[NEAR SYNC] SUCCESS: Cart synced to NEAR")
-            return None  # Success
-
-    except Exception as e:
-        # Log but don't fail the cart operation
-        print(f"[NEAR SYNC] Exception: Failed to sync cart to NEAR: {e}")
-        import traceback
-        traceback.print_exc()
-        return None  # Don't propagate NEAR errors to user
+# NOTE: Cart writes to NEAR require a signed transaction from the user's browser wallet.
+# The Python MCP server has no private key and cannot write to NEAR state.
+# Syncing is handled by the frontend via hooks/use-near-cart-sync.ts using
+# @near-wallet-selector with a pre-granted function call access key.
+# The MCP server only reads from NEAR (view calls via _restore_cart_from_near).
 
 
 def _restore_cart_from_near() -> dict[str, Any] | None:
@@ -412,8 +341,6 @@ def add_to_cart(product_id: str, quantity: int = 1) -> str:
     for item in _cart:
         if item["product_id"] == product_id:
             item["quantity"] += quantity
-            # Sync to NEAR after cart modification
-            _sync_cart_to_near()
             return view_cart()
     _cart.append({
         "product_id": p["id"],
@@ -421,8 +348,6 @@ def add_to_cart(product_id: str, quantity: int = 1) -> str:
         "price": p["price"],
         "quantity": quantity,
     })
-    # Sync to NEAR after cart modification
-    _sync_cart_to_near()
     return view_cart()
 
 
@@ -455,8 +380,6 @@ def update_cart(product_id: str, quantity: int) -> str:
                 _cart.pop(i)
             else:
                 item["quantity"] = quantity
-            # Sync to NEAR after cart modification
-            _sync_cart_to_near()
             return view_cart()
     return json.dumps({"error": f"Product {product_id!r} not in cart."})
 

@@ -1,5 +1,0 @@
-id,country_code,service_level,price,title
-std-in,IN,standard,5000,Standard Shipping (India)
-exp-in,IN,express,12000,Express Shipping (India)
-std-default,default,standard,5000,Standard Shipping
-exp-default,default,express,15000,International Express
