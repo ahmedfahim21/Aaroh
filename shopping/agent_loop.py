@@ -1,0 +1,123 @@
+"""AI-powered agentic shopping loop."""
+
+import json
+import logging
+import os
+from typing import Any, Callable
+
+from google import genai
+from google.genai import types as gtypes
+
+from shopping.session import ShoppingSession
+from shopping.tools import AGENT_TOOLS, dispatch_tool
+
+log = logging.getLogger(__name__)
+
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+EmitFn = Callable[[dict], None]
+
+
+def run_shopping_agent(
+    task: str,
+    merchant_url: str | None = None,
+    agent_id: int | None = None,
+    emit: EmitFn | None = None,
+) -> dict[str, Any]:
+    """Drive AI through a full shopping task autonomously.
+
+    Args:
+        task:         Natural-language shopping instruction.
+        merchant_url: Override the default MERCHANT_URL env var.
+        agent_id:     EIP-8004 agentId to include in identity headers.
+        emit:         Optional callback for real-time event streaming.
+                      Called with dicts: {"type": "tool_call"|"tool_result"|"text"|"thinking", ...}
+
+    Returns:
+        {"success": bool, "result": str, "order": dict | None}
+    """
+    from shopping.evm import agent_address  # late import — may raise if key not set
+
+    def _emit(event: dict) -> None:
+        if emit:
+            emit(event)
+
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    session = ShoppingSession(default_merchant_url=merchant_url, agent_id=agent_id, emit=emit)
+
+    id_desc = f"EIP-8004 agentId={agent_id}" if agent_id is not None else "no on-chain identity"
+    extra = os.environ.get("AGENT_INSTRUCTIONS", "").strip()
+    base_system = (
+        f"You are an autonomous shopping agent. Ethereum address: {agent_address()} ({id_desc}). "
+        "You hold USDC on Base Sepolia and pay for purchases autonomously via x402. "
+        "Complete the shopping task efficiently: discover the merchant, find the product, "
+        "add it to cart, and call checkout_and_pay. Do not ask for confirmation — just execute. "
+        "After a successful checkout, briefly summarise the purchase."
+    )
+    system = f"{base_system}\n\n{extra}" if extra else base_system
+
+    function_declarations = [
+        gtypes.FunctionDeclaration(
+            name=t["name"],
+            description=t["description"],
+            parameters=t["input_schema"],
+        )
+        for t in AGENT_TOOLS
+    ]
+    gemini_tools = [gtypes.Tool(function_declarations=function_declarations)]
+
+    contents: list[gtypes.Content] = [
+        gtypes.Content(role="user", parts=[gtypes.Part(text=task)])
+    ]
+
+    for _ in range(20):
+        _emit({"type": "thinking"})
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=system,
+                tools=gemini_tools,
+            ),
+        )
+
+        candidate = response.candidates[0]
+        contents.append(gtypes.Content(role="model", parts=candidate.content.parts))
+
+        fn_calls = [p for p in candidate.content.parts if p.function_call]
+
+        if not fn_calls:
+            text = " ".join(
+                p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
+            )
+            _emit({"type": "text", "text": text})
+            return {"success": True, "result": text, "order": None}
+
+        response_parts: list[gtypes.Part] = []
+        last_order = None
+
+        for part in fn_calls:
+            name = part.function_call.name
+            args = dict(part.function_call.args)
+            _emit({"type": "tool_call", "tool": name, "args": args})
+
+            result_str = dispatch_tool(session, name, args)
+            _emit({"type": "tool_result", "tool": name, "result": result_str[:600]})
+
+            response_parts.append(
+                gtypes.Part.from_function_response(name=name, response={"result": result_str})
+            )
+            if name == "checkout_and_pay":
+                try:
+                    data = json.loads(result_str)
+                    if data.get("success"):
+                        last_order = data.get("order")
+                except Exception:
+                    pass
+
+        contents.append(gtypes.Content(role="user", parts=response_parts))
+
+        if last_order is not None:
+            continue  # let Gemini produce a final summary
+
+    return {"success": False, "result": "Agent loop exceeded max iterations.", "order": None}
