@@ -68,7 +68,7 @@ def run_shopping_agent(
 
     base_system = (
         f"You are an autonomous shopping agent. Ethereum address: {display_addr} ({id_desc}). "
-        "You hold USDC on Base Sepolia and pay for purchases autonomously via x402. "
+        "You hold USDC on Ethereum Sepolia and pay for purchases autonomously via x402. "
         "Complete the shopping task efficiently: discover the right merchant, find the product, "
         "add it to cart, and call checkout_and_pay. Do not ask for confirmation — just execute. "
         f"After a successful checkout, briefly summarise the purchase.{merchants_desc}"

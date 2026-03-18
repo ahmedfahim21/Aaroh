@@ -15,9 +15,14 @@ export async function createAgent(data: {
   name: string;
   instructions: string;
   walletAddress: string;
+  erc8004Id?: string | null;
 }): Promise<Agent> {
   const [row] = await db.insert(agent).values(data).returning();
   return row;
+}
+
+export async function updateAgentErc8004Id(id: string, erc8004Id: string): Promise<void> {
+  await db.update(agent).set({ erc8004Id }).where(eq(agent.id, id));
 }
 
 export async function listAgents(): Promise<Agent[]> {

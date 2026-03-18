@@ -185,6 +185,7 @@ export const agent = pgTable("Agent", {
   name: text("name").notNull(),
   instructions: text("instructions").notNull().default(""),
   walletAddress: text("walletAddress").notNull(),
+  erc8004Id: text("erc8004Id"),  // EIP-8004 agentId (uint256 as string), null if not registered
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 

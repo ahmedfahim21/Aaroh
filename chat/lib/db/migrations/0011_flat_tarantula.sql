@@ -1,0 +1,1 @@
+ALTER TABLE "Agent" ADD COLUMN "erc8004Id" text;

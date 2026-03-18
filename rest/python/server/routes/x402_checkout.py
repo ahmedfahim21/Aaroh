@@ -7,7 +7,7 @@ in the X-PAYMENT header, and this module verifies + settles with the facilitator
 
 Environment variables:
     MERCHANT_WALLET      – EVM address that receives payment (enables x402 when set)
-    X402_NETWORK         – EIP-155 chain ID string, default "eip155:84532" (Base Sepolia)
+    X402_NETWORK         – EIP-155 chain ID string, default "eip155:11155111" (Ethereum Sepolia)
     X402_FACILITATOR_URL – Facilitator endpoint, default https://x402.org/facilitator
 """
 
@@ -57,7 +57,7 @@ async def handle_x402_checkout(
         HTTPException(402): Payment absent, invalid, or settlement failed.
     """
     merchant_wallet = os.environ.get("MERCHANT_WALLET", "")
-    network = os.environ.get("X402_NETWORK", "eip155:84532")
+    network = os.environ.get("X402_NETWORK", "eip155:11155111")
     facilitator_url = os.environ.get(
         "X402_FACILITATOR_URL", "https://x402.org/facilitator"
     )

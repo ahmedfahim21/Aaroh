@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPublicClient, http, erc20Abi } from "viem";
-import { baseSepolia } from "viem/chains";
+import { sepolia } from "viem/chains";
 
-const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
+const USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as const;
 
 const publicClient = createPublicClient({
-  chain: baseSepolia,
+  chain: sepolia,
   transport: http(),
 });
 
