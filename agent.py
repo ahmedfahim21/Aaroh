@@ -86,14 +86,14 @@ def _push_event(task_id: str, event: dict | None) -> None:
             asyncio.run_coroutine_threadsafe(q.put(event), _event_loop)
 
 
-def _run_task(task_id: str, task: str, merchant_url: str | None, agent_id: int | None) -> None:
+def _run_task(task_id: str, task: str, available_merchants: list[dict], agent_id: int | None, agent_private_key: str | None = None) -> None:
     """Executed in a daemon thread; emits SSE events in real time."""
 
     def emit(event: dict) -> None:
         _push_event(task_id, event)
 
     try:
-        result = run_shopping_agent(task, merchant_url=merchant_url, agent_id=agent_id, emit=emit)
+        result = run_shopping_agent(task, available_merchants=available_merchants, agent_id=agent_id, emit=emit, agent_private_key=agent_private_key)
         record = _tasks[task_id]
         record.status = "done" if result["success"] else "failed"
         record.result = result["result"]
@@ -151,7 +151,8 @@ async def startup() -> None:
 
 class ShopRequest(BaseModel):
     task: str
-    merchant_url: str | None = None
+    available_merchants: list[dict] = []  # [{"name": str, "url": str}]
+    agent_private_key: str | None = None  # per-agent derived key (client-side, in-memory only)
 
 
 class InstructionsRequest(BaseModel):
@@ -203,11 +204,11 @@ def set_instructions(req: InstructionsRequest) -> dict[str, Any]:
 def shop(req: ShopRequest) -> dict[str, str]:
     agent_id = _resolve_agent_id()
     task_id = str(uuid.uuid4())
-    record = TaskRecord(id=task_id, task=req.task, merchant_url=req.merchant_url)
+    record = TaskRecord(id=task_id, task=req.task, merchant_url=None)
     _tasks[task_id] = record
     _sse_queues[task_id] = []
     threading.Thread(
-        target=_run_task, args=(task_id, req.task, req.merchant_url, agent_id), daemon=True
+        target=_run_task, args=(task_id, req.task, req.available_merchants, agent_id, req.agent_private_key), daemon=True
     ).start()
     return {"task_id": task_id, "status": "running"}
 

@@ -1,9 +1,9 @@
-@import "@near-wallet-selector/modal-ui/styles.css";
+/* include utility classes in streamdown */
+@source "../node_modules/streamdown/dist/index.js";
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 
-/* include utility classes in streamdown */
-@source "../node_modules/streamdown/dist/index.js";
+
 
 /* custom variant for setting dark mode programmatically */
 @custom-variant dark (&:is(.dark, .dark *));

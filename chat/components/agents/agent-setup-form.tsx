@@ -2,17 +2,16 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 interface AgentSetupFormProps {
   onTaskStarted: (taskId: string) => void;
+  onTaskTextChange?: (task: string) => void;
 }
 
-export function AgentSetupForm({ onTaskStarted }: AgentSetupFormProps) {
+export function AgentSetupForm({ onTaskStarted, onTaskTextChange }: AgentSetupFormProps) {
   const [task, setTask] = useState("");
-  const [merchantUrl, setMerchantUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,15 +24,13 @@ export function AgentSetupForm({ onTaskStarted }: AgentSetupFormProps) {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          task: task.trim(),
-          merchant_url: merchantUrl.trim() || undefined,
-        }),
+        body: JSON.stringify({ task: task.trim() }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       onTaskStarted(data.task_id);
       setTask("");
+      onTaskTextChange?.("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start task");
     } finally {
@@ -42,30 +39,20 @@ export function AgentSetupForm({ onTaskStarted }: AgentSetupFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <div className="space-y-1.5">
-        <Label htmlFor="task">Shopping task</Label>
+        <Label htmlFor="task">Task</Label>
         <Textarea
           id="task"
-          placeholder="e.g. Buy the cheapest candle from the artisan store"
+          placeholder="e.g. Buy the cheapest candle you can find"
           rows={3}
           value={task}
-          onChange={(e) => setTask(e.target.value)}
+          onChange={(e) => {
+            setTask(e.target.value);
+            onTaskTextChange?.(e.target.value);
+          }}
           disabled={loading}
           required
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="merchant_url">
-          Merchant URL{" "}
-          <span className="text-muted-foreground font-normal">(optional override)</span>
-        </Label>
-        <Input
-          id="merchant_url"
-          placeholder="http://localhost:8000"
-          value={merchantUrl}
-          onChange={(e) => setMerchantUrl(e.target.value)}
-          disabled={loading}
         />
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}

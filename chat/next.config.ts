@@ -2,6 +2,15 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  async redirects() {
+    return [
+      {
+        source: "/onboard",
+        destination: "/merchants/onboard",
+        permanent: true,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

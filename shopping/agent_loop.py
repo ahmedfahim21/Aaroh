@@ -20,39 +20,58 @@ EmitFn = Callable[[dict], None]
 
 def run_shopping_agent(
     task: str,
-    merchant_url: str | None = None,
+    available_merchants: list[dict] | None = None,
     agent_id: int | None = None,
     emit: EmitFn | None = None,
+    agent_private_key: str | None = None,
 ) -> dict[str, Any]:
     """Drive AI through a full shopping task autonomously.
 
     Args:
-        task:         Natural-language shopping instruction.
-        merchant_url: Override the default MERCHANT_URL env var.
-        agent_id:     EIP-8004 agentId to include in identity headers.
-        emit:         Optional callback for real-time event streaming.
-                      Called with dicts: {"type": "tool_call"|"tool_result"|"text"|"thinking", ...}
+        task:                Natural-language shopping instruction.
+        available_merchants: List of {"name": str, "url": str} dicts the agent can shop at.
+        agent_id:            EIP-8004 agentId to include in identity headers.
+        emit:                Optional callback for real-time event streaming.
 
     Returns:
         {"success": bool, "result": str, "order": dict | None}
     """
     from shopping.evm import agent_address  # late import — may raise if key not set
+    from eth_account import Account as _Account
 
     def _emit(event: dict) -> None:
         if emit:
             emit(event)
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    session = ShoppingSession(default_merchant_url=merchant_url, agent_id=agent_id, emit=emit)
+    session = ShoppingSession(default_merchant_url=None, agent_id=agent_id, emit=emit, agent_private_key=agent_private_key)
+
+    # Determine display address (prefer per-agent key, fall back to global env var)
+    if agent_private_key:
+        try:
+            display_addr = _Account.from_key(agent_private_key).address
+        except Exception:
+            display_addr = "unknown"
+    else:
+        try:
+            display_addr = agent_address()
+        except RuntimeError:
+            display_addr = "unknown"
 
     id_desc = f"EIP-8004 agentId={agent_id}" if agent_id is not None else "no on-chain identity"
     extra = os.environ.get("AGENT_INSTRUCTIONS", "").strip()
+
+    merchants_desc = ""
+    if available_merchants:
+        lines = "\n".join(f"  - {m['name']}: {m['url']}" for m in available_merchants)
+        merchants_desc = f"\n\nAvailable merchants (call discover_merchant with the URL first):\n{lines}"
+
     base_system = (
-        f"You are an autonomous shopping agent. Ethereum address: {agent_address()} ({id_desc}). "
+        f"You are an autonomous shopping agent. Ethereum address: {display_addr} ({id_desc}). "
         "You hold USDC on Base Sepolia and pay for purchases autonomously via x402. "
-        "Complete the shopping task efficiently: discover the merchant, find the product, "
+        "Complete the shopping task efficiently: discover the right merchant, find the product, "
         "add it to cart, and call checkout_and_pay. Do not ask for confirmation — just execute. "
-        "After a successful checkout, briefly summarise the purchase."
+        f"After a successful checkout, briefly summarise the purchase.{merchants_desc}"
     )
     system = f"{base_system}\n\n{extra}" if extra else base_system
 

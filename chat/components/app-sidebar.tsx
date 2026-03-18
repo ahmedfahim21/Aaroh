@@ -7,7 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useSWRConfig } from "swr";
 import { unstable_serialize } from "swr/infinite";
-import { BotIcon, PlusIcon, TrashIcon } from "@/components/icons";
+import { PlusIcon, TrashIcon } from "@/components/icons";
 import {
   getChatHistoryPaginationKey,
   SidebarHistory,
@@ -117,18 +117,6 @@ export function AppSidebar({ user }: { user: User | undefined }) {
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarMenu>
-            <div className="px-2 py-1">
-              <Link
-                href="/agents"
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
-                onClick={() => setOpenMobile(false)}
-              >
-                <BotIcon />
-                <span>Agents</span>
-              </Link>
-            </div>
-          </SidebarMenu>
           <SidebarHistory user={user} />
         </SidebarContent>
         <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>

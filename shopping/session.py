@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 import httpx
 
-from shopping.evm import USDC_BASE_SEPOLIA, agent_address, build_x_payment
+from shopping.evm import USDC_BASE_SEPOLIA, agent_address, build_x_payment, build_x_payment_with_key
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ class ShoppingSession:
         default_merchant_url: str | None = None,
         agent_id: int | None = None,
         emit: EmitFn | None = None,
+        agent_private_key: str | None = None,
     ):
         self.merchant_base_url: str | None = (
             (default_merchant_url or os.environ.get("MERCHANT_URL", "")).rstrip("/") or None
@@ -39,6 +40,7 @@ class ShoppingSession:
         self.checkout_session_id: str | None = None
         self.agent_id = agent_id
         self._emit = emit  # optional: called with event dicts for monitoring
+        self._agent_private_key = agent_private_key  # per-agent derived key (takes priority)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -46,12 +48,21 @@ class ShoppingSession:
         if self._emit:
             self._emit({"type": "log", "level": level, "msg": msg})
 
-    def _ucp_headers(self) -> dict[str, str]:
+    def _agent_address(self) -> str | None:
+        if self._agent_private_key:
+            from eth_account import Account as _Account
+            return _Account.from_key(self._agent_private_key).address
         try:
-            addr = agent_address()
+            return agent_address()
+        except RuntimeError:
+            return None
+
+    def _ucp_headers(self) -> dict[str, str]:
+        addr = self._agent_address()
+        if addr:
             agent_id_part = f";erc8004={self.agent_id}" if self.agent_id is not None else ""
             profile = f'profile="evm:{addr}{agent_id_part}"'
-        except RuntimeError:
+        else:
             profile = 'profile="ucp-agent"'
         return {
             "UCP-Agent": profile,
@@ -361,7 +372,10 @@ class ShoppingSession:
 
         self._log("info", f"Signing x402 payment: {amount_micro_usdc / 1_000_000:.2f} USDC → {merchant_wallet[:10]}…")
         try:
-            x_payment = build_x_payment(merchant_wallet, amount_micro_usdc)
+            if self._agent_private_key:
+                x_payment = build_x_payment_with_key(self._agent_private_key, merchant_wallet, amount_micro_usdc)
+            else:
+                x_payment = build_x_payment(merchant_wallet, amount_micro_usdc)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
 
@@ -384,7 +398,7 @@ class ShoppingSession:
             "order": result,
             "paid_usdc": amount_micro_usdc / 1_000_000,
             "merchant_wallet": merchant_wallet,
-            "agent_wallet": agent_address(),
+            "agent_wallet": self._agent_address(),
             "agent_erc8004_id": self.agent_id,
         })
 

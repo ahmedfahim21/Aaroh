@@ -1,3 +1,4 @@
+import type React from "react";
 import { cookies } from "next/headers";
 import Script from "next/script";
 import { Suspense } from "react";
@@ -27,7 +28,7 @@ async function SidebarWrapper({ children }: { children: React.ReactNode }) {
   const isCollapsed = cookieStore.get("sidebar_state")?.value !== "true";
 
   return (
-    <SidebarProvider defaultOpen={!isCollapsed}>
+    <SidebarProvider defaultOpen={!isCollapsed} style={{ "--sidebar-min-h": "calc(100dvh - 48px)" } as React.CSSProperties} className="min-h-[calc(100dvh-48px)] max-h-[calc(100dvh-48px)] overflow-hidden">
       <AppSidebar user={session?.user} />
       <SidebarInset>{children}</SidebarInset>
     </SidebarProvider>

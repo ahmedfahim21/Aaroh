@@ -11,7 +11,7 @@ export type AgentEvent =
   | { type: "done"; success: boolean; result: string }
   | { type: "keepalive" };
 
-export function useTaskSSE(taskId: string | null) {
+export function useTaskSSE(taskId: string | null, eventsUrl?: string) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [done, setDone] = useState(false);
   const esRef = useRef<EventSource | null>(null);
@@ -22,7 +22,8 @@ export function useTaskSSE(taskId: string | null) {
     setEvents([]);
     setDone(false);
 
-    const es = new EventSource(`/api/agent/tasks/${taskId}/events`);
+    const url = eventsUrl ?? `/api/agent/tasks/${taskId}/events`;
+    const es = new EventSource(url);
     esRef.current = es;
 
     es.onmessage = (e) => {
