@@ -458,6 +458,43 @@ export const UncheckedSquare = ({ size = 16 }: { size?: number }) => {
   );
 };
 
+export const GridIcon = () => {
+  return (
+    <svg
+      height="16"
+      width="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      style={{ color: 'currentcolor' }}
+    >
+      <path
+        clipRule="evenodd"
+        fillRule="evenodd"
+        d="M1 1h6v6H1V1zm1.5 1.5v3h3v-3h-3zm5.5-1.5h6v6H8V1zm1.5 1.5v3h3v-3h-3zM1 8h6v6H1V8zm1.5 1.5v3h3v-3h-3zM8 8h6v6H8V8zm1.5 1.5v3h3v-3h-3z"
+      />
+    </svg>
+  )
+}
+
+export const StoreIcon = () => {
+  return (
+    <svg
+      height="16"
+      strokeLinejoin="round"
+      style={{ color: "currentcolor" }}
+      viewBox="0 0 16 16"
+      width="16"
+      fill="currentColor"
+    >
+      <path
+        clipRule="evenodd"
+        fillRule="evenodd"
+        d="M1 1.5H15V4L13.5 6H2.5L1 4V1.5ZM2 4.5L3 5.5H13L14 4.5V3H2V4.5ZM2 7H3V14.5H13V7H14V14.5V15.5H13H3H2V14.5V7ZM6 9H10V10.5H6V9Z"
+      />
+    </svg>
+  );
+};
+
 export const MoreIcon = ({ size = 16 }: { size?: number }) => {
   return (
     <svg

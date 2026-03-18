@@ -15,7 +15,6 @@ export const user = pgTable("User", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   email: varchar("email", { length: 64 }).notNull(),
   password: varchar("password", { length: 64 }),
-  nearAccountId: varchar("nearAccountId", { length: 128 }),
 });
 
 export type User = InferSelectModel<typeof user>;
@@ -169,3 +168,41 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+export const merchant = pgTable("Merchant", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  walletAddress: text("walletAddress").notNull(),
+  categories: text("categories").notNull().default(""),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type Merchant = InferSelectModel<typeof merchant>;
+
+export const agent = pgTable("Agent", {
+  id: uuid("id").primaryKey().notNull(),
+  name: text("name").notNull(),
+  instructions: text("instructions").notNull().default(""),
+  walletAddress: text("walletAddress").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type Agent = InferSelectModel<typeof agent>;
+
+export const agentSession = pgTable("AgentSession", {
+  id: text("id").primaryKey().notNull(),
+  agentId: uuid("agentId")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  task: text("task").notNull(),
+  status: varchar("status", { enum: ["running", "done", "failed"] })
+    .notNull()
+    .default("running"),
+  result: text("result"),
+  events: json("events").$type<Record<string, unknown>[]>().notNull().default([]),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type AgentSession = InferSelectModel<typeof agentSession>;

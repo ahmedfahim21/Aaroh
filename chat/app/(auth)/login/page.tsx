@@ -7,7 +7,6 @@ import { useActionState, useEffect, useState } from "react";
 
 import { AuthForm } from "@/components/auth-form";
 import { SubmitButton } from "@/components/submit-button";
-import { NearSignInButton } from "@/components/near-sign-in-button";
 import { toast } from "@/components/toast";
 import { type LoginActionState, login } from "../actions";
 
@@ -61,19 +60,6 @@ export default function Page() {
         </div>
         <AuthForm action={handleSubmit} defaultEmail={email}>
           <SubmitButton isSuccessful={isSuccessful}>Sign in</SubmitButton>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Or continue with
-              </span>
-            </div>
-          </div>
-
-          <NearSignInButton />
 
           <p className="mt-4 text-center text-gray-600 text-sm dark:text-zinc-400">
             {"Don't have an account? "}

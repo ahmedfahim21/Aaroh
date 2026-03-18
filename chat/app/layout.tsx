@@ -2,14 +2,16 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PrivyAppProvider } from "@/components/privy-provider";
+import { TopNav } from "@/components/top-nav";
 
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://chat.vercel.ai"),
-  title: "Next.js Chatbot Template",
-  description: "Next.js chatbot template using the AI SDK.",
+  title: "Aaroh",
+  description: "Agentic commerce — chat with merchants and onboard your store.",
 };
 
 export const viewport = {
@@ -78,8 +80,11 @@ export default function RootLayout({
           disableTransitionOnChange
           enableSystem
         >
-          <Toaster position="top-center" />
-          <SessionProvider>{children}</SessionProvider>
+          <PrivyAppProvider appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? ""}>
+            <Toaster position="top-center" />
+            <TopNav />
+            <SessionProvider>{children}</SessionProvider>
+          </PrivyAppProvider>
         </ThemeProvider>
       </body>
     </html>

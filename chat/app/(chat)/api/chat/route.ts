@@ -158,11 +158,7 @@ export async function POST(request: Request) {
                 ...mcpToolNames,
               ],
           providerOptions: isReasoningModel
-            ? {
-                anthropic: {
-                  thinking: { type: "enabled", budgetTokens: 10_000 },
-                },
-              }
+            ? { google: { thinkingConfig: { thinkingBudget: 10_000 } } }
             : undefined,
           tools: {
             getWeather,

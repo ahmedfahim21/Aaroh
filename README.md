@@ -1,159 +1,158 @@
-# Agentic Commerce
+# Aaroh — Agentic Commerce
 
-An India-first agentic commerce stack — discover, decide, and transact through AI.
+A crypto-native agentic commerce stack. AI agents discover merchants, shop autonomously, and pay with USDC — no human in the loop.
 
-Built on Google's [Universal Commerce Protocol (UCP)](https://developers.google.com/merchant/ucp/guides), with UPI payments and multilingual interactions in 11+ Indian languages.
+Built on the [Universal Commerce Protocol (UCP)](https://developers.google.com/merchant/ucp/guides) with [x402](https://x402.org) crypto payments (USDC / EIP-3009) and [EIP-8004](https://github.com/EIPs-CodeLab/ERC-8004) trustless agent identity.
 
-## The Opportunity
-
-India has all the primitives for agentic commerce — the rise of AI-first users, the explosion of D2C brands, ubiquitous UPI, and hundreds of millions of vernacular users. What's missing is the **glue** that turns these into an end-to-end experience for both merchants and consumers.
-
-**For Merchants:** AI chat interfaces (Claude, ChatGPT, Gemini) are the next frontier of shopping. But becoming [UCP-compliant](https://developers.googleblog.com/under-the-hood-universal-commerce-protocol-ucp/) and setting up the required infra is hard. Merchants need a way to get visibility to millions of users without the complexity.
-
-**For Consumers:** Users are already searching for products and recommendations on AI apps. The next step is completing the entire checkout — discovery to payment — without leaving the chat. And in India, that experience must be voice-first and multilingual.
+---
 
 ## How It Works
 
-### For Merchants — Go Live in Seconds
+### For Merchants — Go Live in Minutes
 
-Provide your **product catalogue** and **UPI VPA**. That's it.
-
-We handle the rest — generating a fully UCP-compliant merchant server, discovery profile, inventory, shipping rates, and payment integration. Your products become instantly visible to any AI agent or chat client that speaks UCP.
+Provide a **product catalogue CSV** and an **EVM wallet address** to receive USDC payments. That's it.
 
 ```
-Catalogue CSV + UPI VPA → UCP-Compliant Merchant Server → Visible on Claude, ChatGPT, Gemini, and more
+Catalogue CSV + EVM Wallet → UCP-Compliant Merchant Server → Visible to Any AI Agent
 ```
 
-**What gets generated:**
-- UCP discovery profile (`/.well-known/ucp`)
-- Product database with search and categories
-- Checkout session management
-- UPI payment link and QR code generation
-- Order lifecycle tracking
-- Shipping rate configuration (domestic + international)
+The onboarding flow generates a fully compliant UCP server with discovery, product search, checkout sessions, and x402 payment verification. Start it from the **Merchants** tab in the web app.
 
-Use the **merchant onboarding web app** for a guided experience, or the CLI for automation.
+### For Agents — Autonomous Shopping
 
-### For Consumers — Shop From Any AI Chat
+Each agent has its own derived EVM wallet (no shared key). The agent:
 
-#### Option 1: MCP Server (Any Chat Client)
+1. **Discovers** a UCP merchant via `/.well-known/ucp`
+2. **Searches** the catalogue and **adds** items to cart
+3. **Checks out**, signs an EIP-3009 USDC `TransferWithAuthorization`
+4. **Submits** the signed `X-PAYMENT` header to complete the order
 
-Add our [MCP](https://modelcontextprotocol.io) shopping server to **Claude Desktop, Gemini, ChatGPT**, or any MCP-compatible client. The full shopping flow works inside your existing chat:
+The full loop runs in a single `POST /shop` call — no human confirmation needed.
 
-1. **Discover** — Find merchants and browse products
-2. **Decide** — Search, compare, get AI recommendations
-3. **Cart** — Add, update, remove items
-4. **Pay** — Generate a UPI payment link / QR code, pay with any UPI app
-5. **Confirm** — Complete the order, all without leaving the chat
+### Wallet Key Derivation (No Master Key Stored)
 
-#### Option 2: Our Chat Client (Enhanced Experience)
+Agent wallets are derived entirely client-side:
 
-For a richer experience, use our built-in chat client:
+1. User connects via **Privy** and signs a deterministic message: `"Aaroh Agent Master Key v1"`
+2. Signature is cached in `localStorage`
+3. Per-agent private key: `keccak256(sig_bytes ++ agentId_bytes)` (viem, client-side)
+4. Only the derived **address** is stored in the DB — never the private key
+5. At dispatch time, the client re-derives the key and sends it in the request body (in-memory only on the server)
 
-- **11+ Indian languages** — Shop in Hindi, Tamil, Telugu, Bengali, Marathi, Kannada, Malayalam, Gujarati, Odia, Punjabi, and more
-- **Voice-first** — Speak in your language, get responses in your language
-- **Rich UX** — Product cards, cart views, QR codes, artifacts, and more
-- **Powered by Claude** with full MCP tool integration
+---
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph CONSUMERS["CONSUMERS"]
-        direction TB
-        subgraph clients["Chat Clients"]
-            Claude["Claude Desktop / Gemini"]
-            ChatGPT["ChatGPT & Others"]
-            ChatClient["Our Chat Client\n(Voice + Multilingual)"]
-        end
-        clients -->|MCP stdio| MCPServer["MCP Shopping Server"]
-    end
-
-    MCPServer -->|UCP HTTP| UCPServer["UCP Merchant Server\n(Python/FastAPI or Node.js/Hono)"]
-
-    subgraph MERCHANTS["MERCHANTS"]
-        UCPServer --> Products["Products DB"]
-        UCPServer --> Checkout["Checkout Sessions"]
-        UCPServer --> UPI["UPI Payments"]
-    end
 ```
+┌──────────────────────────────────────────────────────────────┐
+│  chat/  (Next.js — port 4000)                                 │
+│  ┌──────────┐  ┌────────┐  ┌───────────┐                     │
+│  │   Chat   │  │ Agents │  │ Merchants │  ← Top navbar        │
+│  └──────────┘  └────────┘  └───────────┘                     │
+│       │             │             │                           │
+│  Claude + MCP   Agent sessions  UCP server mgmt              │
+└──────────────────────────────────────────────────────────────┘
+         │                   │
+         ▼                   ▼
+  mcp_client.py         agent.py (port 8004)
+  (stdio MCP server)    (FastAPI + Gemini)
+         │                   │
+         └─────────┬─────────┘
+                   ▼
+        UCP Merchant Server (rest/python/server/)
+        ├── /.well-known/ucp
+        ├── /products, /catalogue
+        ├── /checkout-sessions
+        └── x402 payment verification
+                   │
+                   ▼
+        USDC on Base Sepolia (EIP-3009)
+```
+
+---
 
 ## Project Structure
 
-| Component | Path | Description |
-|---|---|---|
-| **MCP Shopping Server** | [`mcp_client.py`](mcp_client.py) | MCP server exposing shopping tools for any AI chat client |
-| **Merchant Onboarding CLI** | [`onboard_merchant.py`](onboard_merchant.py) | Transforms a catalogue CSV into a full UCP-ready deployment |
-| **UPI Payments** | [`payment.py`](payment.py) | UPI deep link and QR code generation |
-| **UCP Server (Python)** | [`rest/python/server/`](rest/python/server/) | UCP merchant server — FastAPI + SQLite |
-| **UCP Server (Node.js)** | [`rest/nodejs/`](rest/nodejs/) | UCP merchant server — Hono + better-sqlite3 |
-| **Chat Client** | [`chat/`](chat/) | Next.js AI chat with MCP integration, multilingual support |
-| **Onboarding Web App** | [`web/`](web/) | React + FastAPI merchant onboarding UI ("Saarthi") |
-| **Multilingual / Voice** | [`sarvam/`](sarvam/) | Sarvam AI integration — ASR, TTS, translation, language detection |
-| **Demo Data** | [`demo_data/`](demo_data/) | Sample Indian artisan catalogue (textiles, pottery, spices, jewelry) |
+| Path | Description |
+|---|---|
+| [`chat/`](chat/) | Next.js web app — Chat, Agents, Merchants |
+| [`agent.py`](agent.py) | Autonomous shopping agent — FastAPI + EIP-8004 identity |
+| [`mcp_client.py`](mcp_client.py) | MCP server for Claude Desktop / any MCP client |
+| [`shopping/`](shopping/) | Shared shopping session library (used by both agent + MCP) |
+| [`onboard_merchant.py`](onboard_merchant.py) | CLI: CSV → UCP merchant package |
+| [`rest/python/server/`](rest/python/server/) | UCP merchant server (FastAPI + SQLite + x402) |
+| [`demo_data/`](demo_data/) | Sample product catalogues |
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python ≥ 3.10 with [uv](https://docs.astral.sh/uv/)
-- Node.js ≥ 18 with pnpm
-- A UPI VPA for receiving payments
+- Python ≥ 3.10 + [uv](https://docs.astral.sh/uv/)
+- Node.js ≥ 18 + pnpm
+- A funded USDC wallet on **Base Sepolia** (for the agent to pay)
+- PostgreSQL database (or a [Supabase](https://supabase.com) project)
 
-### 1. Onboard a Merchant
+### 1. Start the Web App
 
-Using the demo catalogue:
+```bash
+cd chat
+cp .env.example .env.local
+# Fill in POSTGRES_URL, AUTH_SECRET, GOOGLE_GENERATIVE_AI_API_KEY, NEXT_PUBLIC_PRIVY_APP_ID
+
+pnpm install
+pnpm db:generate   # generate migration SQL
+# Apply migrations: pnpm db:push  OR  paste SQL into your DB console
+pnpm dev           # http://localhost:4000
+```
+
+### 2. Onboard a Merchant
+
+**From the web app** — go to **Merchants → Onboard**, upload a catalogue CSV and enter your EVM wallet. The server starts automatically.
+
+**From the CLI:**
 
 ```bash
 uv run onboard_merchant.py \
-  --catalogue demo_data/catalogue.csv \
+  --catalogue demo_data/artisan-india.csv \
   --merchant-name "Artisan India" \
-  --upi-vpa "merchant@upi" \
+  --merchant-wallet "0xYourWallet" \
   --output-dir deploy/artisan-india
 ```
 
-Or use the web UI:
+Then start the UCP server:
 
 ```bash
-# Backend
-cd web/backend && uv run --project ../.. uvicorn main:app --reload --port 8080
-
-# Frontend (in another terminal)
-cd web/frontend && npm install && npm run dev
-```
-
-Open http://localhost:5173, enter your merchant details, upload your catalogue, and you're live.
-
-### 2. Start the UCP Merchant Server
-
-**Python:**
-
-```bash
-cd rest/python/server && uv sync
-
-# Import data
-uv run import_csv.py \
-  --products_db_path=../../deploy/artisan-india/data/products.db \
-  --transactions_db_path=../../deploy/artisan-india/data/transactions.db \
-  --data_dir=../../deploy/artisan-india/data
-
-# Start server
+cd rest/python/server
 uv run server.py \
   --products_db_path=../../deploy/artisan-india/data/products.db \
-  --transactions_db_path=../../deploy/artisan-india/data/transactions.db \
   --discovery_profile_path=../../deploy/artisan-india/discovery_profile.json \
   --port=8000
 ```
 
-**Node.js:**
+Set `MERCHANT_WALLET=0xYourWallet` in the server env to enable x402 payment verification.
+
+### 3. Start the Autonomous Agent
 
 ```bash
-cd rest/nodejs && npm install && npm run dev  # port 3000
+cp .env.example .env   # root level
+# Set: AGENT_PRIVATE_KEY, GEMINI_API_KEY, ERC8004_IDENTITY_REGISTRY, IDENTITY_REGISTRY_RPC
+
+uv run agent.py        # http://localhost:8004
 ```
 
-### 3. Connect to a Chat Client
+On first run, the agent registers an EIP-8004 identity on Ethereum Sepolia (NFT mint) and caches the `agentId` in `.erc8004_agent_id`.
 
-**Claude Desktop** — Add to your Claude Desktop config (`claude_desktop_config.json`):
+### 4. Create Agents from the Web App
+
+1. Go to **Agents → + New Agent**
+2. Connect your wallet via Privy (sign the master key message)
+3. An EVM address is derived client-side and shown on the card
+4. Fund the agent with USDC (Base Sepolia) using the **Fund Agent** button
+5. Navigate to the agent, dispatch a task — the agent shops and pays autonomously
+
+### 5. Connect to Claude Desktop (MCP)
 
 ```json
 {
@@ -163,80 +162,120 @@ cd rest/nodejs && npm install && npm run dev  # port 3000
       "args": ["run", "python", "mcp_client.py"],
       "cwd": "/path/to/agentic-commerce",
       "env": {
-        "MERCHANT_URL": "http://localhost:8000",
-        "MERCHANT_VPA": "merchant@upi",
-        "MERCHANT_NAME": "Artisan India"
+        "MERCHANT_URL": "http://localhost:8000"
       }
     }
   }
 }
 ```
 
-**Our Chat Client** (with voice + multilingual support):
-
-```bash
-cd chat && pnpm install && pnpm db:migrate && pnpm dev
-```
-
-Open http://localhost:4000 and start shopping in your language.
+---
 
 ## MCP Tools
 
-The MCP server exposes these tools to any connected AI agent:
+Available to any MCP-connected AI agent (Claude Desktop, etc.):
 
 | Tool | Description |
 |---|---|
-| `discover_merchant` | Connect to a UCP merchant via `/.well-known/ucp` |
+| `discover_merchant` | Connect to a merchant via `/.well-known/ucp` |
 | `browse_categories` | List all product categories |
 | `search_products` | Search by keyword and/or category |
 | `get_product` | Get full product details |
 | `add_to_cart` | Add a product to the cart |
-| `view_cart` | View current cart contents |
+| `view_cart` | View current cart |
 | `update_cart` | Update item quantity |
 | `remove_from_cart` | Remove an item |
-| `checkout` | Create checkout session, generate UPI payment link + QR |
-| `confirm_payment` | Confirm payment with UTR and complete the order |
+| `checkout` | Create checkout session (returns order total + merchant wallet) |
+| `complete_checkout` | Submit signed EIP-3009 x_payment to finalise the order |
 
-## UCP Compliance
+---
 
-Fully compliant with the [UCP specification](https://developers.google.com/merchant/ucp/guides):
+## Payments — x402 / EIP-3009
 
-- **Protocol version:** `2026-01-11`
-- **Discovery:** `/.well-known/ucp` endpoint
-- **Capabilities:** checkout, order, discount, fulfillment, buyer consent
-- **Payment:** UPI (`in.npci.upi`)
-- **Headers:** `UCP-Agent`, `Request-Signature`, `Idempotency-Key`, `Request-Id`
-- **Conformance:** Compatible with the official UCP conformance test suite
+All payments use **USDC on Base Sepolia** via the [x402 protocol](https://x402.org):
 
-## Environment Variables
+- Token: `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (USDC, Base Sepolia)
+- Scheme: `exact` — agent signs an EIP-3009 `TransferWithAuthorization`
+- Facilitator: `https://x402.org/facilitator` (configurable via `X402_FACILITATOR_URL`)
+- Amount unit: USDC micro-units (6 decimals) — `cents × 10_000`
 
-| Variable | Component | Description |
-|---|---|---|
-| `MERCHANT_URL` | MCP Server | UCP merchant server URL |
-| `MERCHANT_VPA` | MCP Server | Merchant UPI VPA |
-| `MERCHANT_NAME` | MCP Server | Merchant display name |
-| `MCP_MERCHANT_URL` | Chat Client | Merchant URL for MCP connection |
-| `MCP_MERCHANT_VPA` | Chat Client | Merchant VPA |
-| `MCP_MERCHANT_NAME` | Chat Client | Merchant name |
-| `MCP_UV_PATH` | Chat Client | Path to `uv` binary |
-| `AUTH_SECRET` | Chat Client | Auth.js secret |
-| `SARVAM_API_KEY` | Voice/Translation | Sarvam AI API key |
+---
+
+## Agent Identity — EIP-8004
+
+The autonomous agent registers a trustless on-chain identity via [EIP-8004](https://github.com/EIPs-CodeLab/ERC-8004):
+
+| Contract | Address (Ethereum Sepolia) |
+|---|---|
+| IdentityRegistry | `0x7343dFdc3E9adf2B4D2645bE7Cb12426dB5cae1e` |
+| ReputationRegistry | `0x0a41808952EBeF39Ae90E2f71B44586C47fCD9b5` |
+| ValidationRegistry | `0x862b7c3F12990aF971a76F249D5B57efe7465F3E` |
+
+The `agentId` (uint256 NFT) is included in the `UCP-Agent` header on every request:
+```
+UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
+```
+
+---
 
 ## Catalogue Format
-
-Your product catalogue CSV needs these columns:
 
 | Column | Required | Description |
 |---|---|---|
 | `id` | Yes | Unique product identifier |
 | `title` | Yes | Product name |
-| `price` | Yes | Price in paise (e.g., 250000 = ₹2,500) |
+| `price` | Yes | Price in **USD cents** (e.g. `2800` = $28.00) |
 | `image_url` | Yes | Product image URL |
 | `description` | No | Product description |
 | `category` | No | Product category |
-| `origin_state` | No | State of origin |
-| `artisan_name` | No | Artisan / maker name |
 | `inventory_quantity` | No | Stock count (default: 100) |
+
+---
+
+## Environment Variables
+
+### Web App (`chat/.env.local`)
+
+| Variable | Description |
+|---|---|
+| `POSTGRES_URL` | PostgreSQL connection string |
+| `AUTH_SECRET` | Auth.js secret (run `openssl rand -base64 32`) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key (for chat) |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (wallet connect) |
+| `AGENT_URL` | Autonomous agent URL (default: `http://localhost:8004`) |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob token (file uploads) |
+
+### Agent (`agent.py`)
+
+| Variable | Description |
+|---|---|
+| `AGENT_PRIVATE_KEY` | 0x-prefixed hex private key for the global agent wallet |
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `GEMINI_MODEL` | Model name (default: `gemini-2.0-flash`) |
+| `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address (Ethereum Sepolia) |
+| `IDENTITY_REGISTRY_RPC` | Ethereum Sepolia RPC URL |
+| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
+| `MERCHANT_URL` | Default merchant URL for startup task |
+
+### UCP Merchant Server
+
+| Variable | Description |
+|---|---|
+| `MERCHANT_WALLET` | EVM wallet address to receive USDC (enables x402) |
+| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
+| `X402_FACILITATOR_URL` | x402 facilitator URL (default: `https://x402.org/facilitator`) |
+
+---
+
+## UCP Compliance
+
+- **Protocol version:** `2026-01-11`
+- **Discovery:** `/.well-known/ucp`
+- **Capabilities:** checkout, order, discount, fulfillment, buyer consent
+- **Payment handler:** `org.ethereum.evm` (x402 / EIP-3009 USDC)
+- **Headers:** `UCP-Agent`, `Request-Signature`, `Idempotency-Key`, `Request-Id`
+
+---
 
 ## License
 
