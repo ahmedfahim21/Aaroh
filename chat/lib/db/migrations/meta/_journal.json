@@ -78,6 +78,13 @@
       "when": 1773862769989,
       "tag": "0010_majestic_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1773864841706,
+      "tag": "0011_flat_tarantula",
+      "breakpoints": true
     }
   ]
 }

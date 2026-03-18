@@ -40,8 +40,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from shopping.agent_loop import run_shopping_agent
-from shopping.evm import USDC_BASE_SEPOLIA, agent_address
-from shopping.identity import get_or_register_eip8004_identity
+from shopping.evm import USDC_ETH_SEPOLIA, agent_address
+from shopping.identity import get_or_register_eip8004_identity, register_with_key
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -86,14 +86,16 @@ def _push_event(task_id: str, event: dict | None) -> None:
             asyncio.run_coroutine_threadsafe(q.put(event), _event_loop)
 
 
-def _run_task(task_id: str, task: str, available_merchants: list[dict], agent_id: int | None, agent_private_key: str | None = None) -> None:
+def _run_task(task_id: str, task: str, available_merchants: list[dict], agent_id: int | None, agent_private_key: str | None = None, erc8004_agent_id: int | None = None) -> None:
     """Executed in a daemon thread; emits SSE events in real time."""
 
     def emit(event: dict) -> None:
         _push_event(task_id, event)
 
+    # Use per-agent erc8004 id if provided, otherwise fall back to global identity
+    effective_agent_id = erc8004_agent_id if erc8004_agent_id is not None else agent_id
     try:
-        result = run_shopping_agent(task, available_merchants=available_merchants, agent_id=agent_id, emit=emit, agent_private_key=agent_private_key)
+        result = run_shopping_agent(task, available_merchants=available_merchants, agent_id=effective_agent_id, emit=emit, agent_private_key=agent_private_key)
         record = _tasks[task_id]
         record.status = "done" if result["success"] else "failed"
         record.result = result["result"]
@@ -153,6 +155,11 @@ class ShopRequest(BaseModel):
     task: str
     available_merchants: list[dict] = []  # [{"name": str, "url": str}]
     agent_private_key: str | None = None  # per-agent derived key (client-side, in-memory only)
+    erc8004_agent_id: int | None = None  # pre-registered EIP-8004 agent ID (if known)
+
+
+class RegisterRequest(BaseModel):
+    private_key_hex: str  # per-agent derived private key
 
 
 class InstructionsRequest(BaseModel):
@@ -182,8 +189,8 @@ def identity() -> dict[str, Any]:
             "network": "eip155:11155111",
         },
         "payment": {
-            "network": os.environ.get("X402_NETWORK", "eip155:84532"),
-            "usdc_contract": USDC_BASE_SEPOLIA,
+            "network": os.environ.get("X402_NETWORK", "eip155:11155111"),
+            "usdc_contract": USDC_ETH_SEPOLIA,
         },
     }
 
@@ -200,6 +207,17 @@ def set_instructions(req: InstructionsRequest) -> dict[str, Any]:
     return {"ok": True, "instructions": _agent_instructions}
 
 
+@app.post("/register")
+def register(req: RegisterRequest) -> dict[str, Any]:
+    """Register (or retrieve) an EIP-8004 identity for the given private key.
+
+    Returns {"agent_id": int} on success, {"agent_id": null} if registry not configured
+    or registration fails (e.g. insufficient ETH for gas).
+    """
+    agent_id = register_with_key(req.private_key_hex)
+    return {"agent_id": agent_id}
+
+
 @app.post("/shop")
 def shop(req: ShopRequest) -> dict[str, str]:
     agent_id = _resolve_agent_id()
@@ -208,7 +226,9 @@ def shop(req: ShopRequest) -> dict[str, str]:
     _tasks[task_id] = record
     _sse_queues[task_id] = []
     threading.Thread(
-        target=_run_task, args=(task_id, req.task, req.available_merchants, agent_id, req.agent_private_key), daemon=True
+        target=_run_task,
+        args=(task_id, req.task, req.available_merchants, agent_id, req.agent_private_key, req.erc8004_agent_id),
+        daemon=True,
     ).start()
     return {"task_id": task_id, "status": "running"}
 

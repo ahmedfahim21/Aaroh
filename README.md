@@ -66,7 +66,7 @@ Agent wallets are derived entirely client-side:
         └── x402 payment verification
                    │
                    ▼
-        USDC on Base Sepolia (EIP-3009)
+        USDC on Ethereum Sepolia (EIP-3009)
 ```
 
 ---
@@ -91,7 +91,7 @@ Agent wallets are derived entirely client-side:
 
 - Python ≥ 3.10 + [uv](https://docs.astral.sh/uv/)
 - Node.js ≥ 18 + pnpm
-- A funded USDC wallet on **Base Sepolia** (for the agent to pay)
+- A funded USDC wallet on **Ethereum Sepolia** (for the agent to pay)
 - PostgreSQL database (or a [Supabase](https://supabase.com) project)
 
 ### 1. Start the Web App
@@ -149,7 +149,7 @@ On first run, the agent registers an EIP-8004 identity on Ethereum Sepolia (NFT 
 1. Go to **Agents → + New Agent**
 2. Connect your wallet via Privy (sign the master key message)
 3. An EVM address is derived client-side and shown on the card
-4. Fund the agent with USDC (Base Sepolia) using the **Fund Agent** button
+4. Fund the agent with USDC (Ethereum Sepolia) using the **Fund Agent** button
 5. Navigate to the agent, dispatch a task — the agent shops and pays autonomously
 
 ### 5. Connect to Claude Desktop (MCP)
@@ -192,9 +192,9 @@ Available to any MCP-connected AI agent (Claude Desktop, etc.):
 
 ## Payments — x402 / EIP-3009
 
-All payments use **USDC on Base Sepolia** via the [x402 protocol](https://x402.org):
+All payments use **USDC on Ethereum Sepolia** via the [x402 protocol](https://x402.org):
 
-- Token: `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (USDC, Base Sepolia)
+- Token: `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` (USDC, Ethereum Sepolia)
 - Scheme: `exact` — agent signs an EIP-3009 `TransferWithAuthorization`
 - Facilitator: `https://x402.org/facilitator` (configurable via `X402_FACILITATOR_URL`)
 - Amount unit: USDC micro-units (6 decimals) — `cents × 10_000`
