@@ -3,9 +3,11 @@
 import json
 import logging
 import os
+import time
 from typing import Any, Callable
 
 from google import genai
+from google.genai import errors as gerrors
 from google.genai import types as gtypes
 
 from shopping.session import ShoppingSession
@@ -43,7 +45,10 @@ def run_shopping_agent(
         if emit:
             emit(event)
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
+    client = genai.Client(api_key=api_key)
     session = ShoppingSession(default_merchant_url=None, agent_id=agent_id, emit=emit, agent_private_key=agent_private_key)
 
     # Determine display address (prefer per-agent key, fall back to global env var)
@@ -91,14 +96,35 @@ def run_shopping_agent(
 
     for _ in range(20):
         _emit({"type": "thinking"})
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=gtypes.GenerateContentConfig(
-                system_instruction=system,
-                tools=gemini_tools,
-            ),
-        )
+        for attempt in range(4):
+            try:
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=contents,
+                    config=gtypes.GenerateContentConfig(
+                        system_instruction=system,
+                        tools=gemini_tools,
+                    ),
+                )
+                break
+            except gerrors.ClientError as e:
+                if e.code == 429 and attempt < 3:
+                    # Parse retryDelay from error details if available
+                    retry_delay = 60
+                    try:
+                        details = e.details.get("error", {}).get("details", [])
+                        for d in details:
+                            if d.get("@type", "").endswith("RetryInfo"):
+                                delay_str = d.get("retryDelay", "60s")
+                                retry_delay = int(delay_str.rstrip("s")) + 2
+                                break
+                    except Exception:
+                        pass
+                    _emit({"type": "thinking", "text": f"Rate limited — retrying in {retry_delay}s"})
+                    log.warning("429 rate limit hit, retrying in %ds", retry_delay)
+                    time.sleep(retry_delay)
+                else:
+                    raise
 
         candidate = response.candidates[0]
         contents.append(gtypes.Content(role="model", parts=candidate.content.parts))
