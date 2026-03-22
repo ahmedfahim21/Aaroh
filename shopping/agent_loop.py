@@ -3,13 +3,13 @@
 import json
 import logging
 import os
-import time
 from typing import Any, Callable
 
 from google import genai
 from google.genai import errors as gerrors
 from google.genai import types as gtypes
 
+from shopping.retry_utils import with_retry
 from shopping.session import ShoppingSession
 from shopping.tools import AGENT_TOOLS, dispatch_tool
 
@@ -96,35 +96,37 @@ def run_shopping_agent(
 
     for _ in range(20):
         _emit({"type": "thinking"})
-        for attempt in range(4):
-            try:
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=contents,
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction=system,
-                        tools=gemini_tools,
-                    ),
+
+        def _on_gemini_retry(attempt: int, exc: BaseException, delay_s: float) -> None:
+            if isinstance(exc, gerrors.ClientError) and exc.code == 429:
+                _emit(
+                    {
+                        "type": "thinking",
+                        "text": f"Rate limited — retrying in {int(delay_s)}s",
+                    }
                 )
-                break
-            except gerrors.ClientError as e:
-                if e.code == 429 and attempt < 3:
-                    # Parse retryDelay from error details if available
-                    retry_delay = 60
-                    try:
-                        details = e.details.get("error", {}).get("details", [])
-                        for d in details:
-                            if d.get("@type", "").endswith("RetryInfo"):
-                                delay_str = d.get("retryDelay", "60s")
-                                retry_delay = int(delay_str.rstrip("s")) + 2
-                                break
-                    except Exception:
-                        pass
-                    _emit({"type": "thinking", "text": f"Rate limited — retrying in {retry_delay}s"})
-                    log.warning("429 rate limit hit, retrying in %ds", retry_delay)
-                    time.sleep(retry_delay)
-                else:
-                    raise
+            else:
+                _emit(
+                    {
+                        "type": "thinking",
+                        "text": f"Transient API error — retrying in {delay_s:.1f}s",
+                    }
+                )
+
+        def _generate() -> Any:
+            return client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=gtypes.GenerateContentConfig(
+                    system_instruction=system,
+                    tools=gemini_tools,
+                ),
+            )
+
+        response = with_retry(
+            _generate,
+            on_retry=_on_gemini_retry,
+        )
 
         candidate = response.candidates[0]
         contents.append(gtypes.Content(role="model", parts=candidate.content.parts))
