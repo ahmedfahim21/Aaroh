@@ -2,7 +2,6 @@
 
 import { PrivyProvider } from "@privy-io/react-auth";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import { sepolia } from "viem/chains";
 
 const LOGIN_METHODS = [
@@ -29,13 +28,8 @@ function PrivyProviderWithTheme({
   children: React.ReactNode;
 }) {
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const privyTheme = mounted && resolvedTheme === "dark" ? "dark" : "light";
+  const privyTheme = resolvedTheme === "dark" ? "dark" : "light";
 
   return (
     <PrivyProvider
