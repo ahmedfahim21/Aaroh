@@ -7,6 +7,15 @@ import { runningProcesses } from "@/lib/merchant-processes";
 const REPO_ROOT = resolve(process.cwd(), "..");
 const DEPLOY_DIR = join(REPO_ROOT, "deploy");
 
+function parseCommaSeparated(str: string | null | undefined): string[] {
+  return str
+    ? str
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+}
+
 export interface MerchantInfo {
   slug: string;
   name: string;
@@ -40,13 +49,10 @@ export async function GET() {
           const profile = JSON.parse(readFileSync(profilePath, "utf-8"));
           name = profile?.merchant?.name ?? slug;
           const cats = profile?.merchant?.product_categories ?? "";
-          categories = cats
-            ? cats
-                .split(",")
-                .map((c: string) => c.trim())
-                .filter(Boolean)
-            : [];
-        } catch {}
+          categories = parseCommaSeparated(cats);
+        } catch {
+          /* ignore invalid discovery_profile.json */
+        }
       }
 
       const proc = runningProcesses.get(slug);
@@ -75,18 +81,8 @@ export async function GET() {
       return {
         slug: m.slug,
         name: m.name,
-        categories: m.categories
-          ? m.categories
-              .split(",")
-              .map((c) => c.trim())
-              .filter(Boolean)
-          : [],
-        tags: m.tags
-          ? m.tags
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean)
-          : [],
+        categories: parseCommaSeparated(m.categories),
+        tags: parseCommaSeparated(m.tags),
         description: m.description ?? "",
         hasProducts: existsSync(productsDb),
         running: !!proc,

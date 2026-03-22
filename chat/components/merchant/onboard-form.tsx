@@ -63,7 +63,7 @@ export function OnboardForm({ privyEnabled }: Props) {
         data.slug ??
         data.merchant_name?.toLowerCase().replace(/\s+/g, "-") ??
         "unknown";
-      await fetch("/api/merchants", {
+      const registerRes = await fetch("/api/merchants", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -74,9 +74,16 @@ export function OnboardForm({ privyEnabled }: Props) {
           tags: tags.trim(),
           description: description.trim(),
         }),
-      }).catch(() => {
-        /* non-fatal if merchant already exists */
       });
+
+      if (!registerRes.ok) {
+        const errorData = await registerRes.json().catch(() => ({}));
+        setStatus("error");
+        setMessage(
+          errorData.error ?? "Failed to register merchant in the database."
+        );
+        return;
+      }
 
       setMerchantName("");
       setMerchantWallet("");
