@@ -175,6 +175,8 @@ export const merchant = pgTable("Merchant", {
   name: text("name").notNull(),
   walletAddress: text("walletAddress").notNull(),
   categories: text("categories").notNull().default(""),
+  tags: text("tags").notNull().default(""),
+  description: text("description").notNull().default(""),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
@@ -185,7 +187,7 @@ export const agent = pgTable("Agent", {
   name: text("name").notNull(),
   instructions: text("instructions").notNull().default(""),
   walletAddress: text("walletAddress").notNull(),
-  erc8004Id: text("erc8004Id"),  // EIP-8004 agentId (uint256 as string), null if not registered
+  erc8004Id: text("erc8004Id"), // EIP-8004 agentId (uint256 as string), null if not registered
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
@@ -201,7 +203,10 @@ export const agentSession = pgTable("AgentSession", {
     .notNull()
     .default("running"),
   result: text("result"),
-  events: json("events").$type<Record<string, unknown>[]>().notNull().default([]),
+  events: json("events")
+    .$type<Record<string, unknown>[]>()
+    .notNull()
+    .default([]),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   completedAt: timestamp("completedAt"),
 });
