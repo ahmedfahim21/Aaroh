@@ -1,11 +1,14 @@
 import { config } from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { resolve } from "node:path";
 import postgres from "postgres";
 
-config({
-  path: ".env",
-});
+const root = process.cwd();
+
+// Same layering as Next.js: base then .local overrides (missing files are ignored)
+config({ path: resolve(root, ".env") });
+config({ path: resolve(root, ".env.local"), override: true });
 
 const runMigrate = async () => {
   if (!process.env.POSTGRES_URL) {

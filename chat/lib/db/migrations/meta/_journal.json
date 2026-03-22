@@ -85,6 +85,13 @@
       "when": 1773864841706,
       "tag": "0011_flat_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1774195603993,
+      "tag": "0012_merchant_tags_description",
+      "breakpoints": true
     }
   ]
 }
