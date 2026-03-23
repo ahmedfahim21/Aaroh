@@ -50,13 +50,12 @@
   "payment": {
     "handlers": [
       {
-        "id": "upi",
-        "name": "in.npci.upi",
+        "id": "evm",
+        "name": "org.ethereum.evm",
         "version": "2026-01-11",
-        "spec": "https://www.npci.org.in/upi",
         "config": {
-          "vpa": "9411327838@upi",
-          "merchant_name": "Parth Mittal"
+          "wallet_address": "{{MERCHANT_WALLET}}",
+          "merchant_name": "Artisan India"
         }
       }
     ]
