@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PrivyAppProvider } from "@/components/privy-provider";
@@ -82,7 +83,9 @@ export default function RootLayout({
         >
           <PrivyAppProvider appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? ""}>
             <Toaster position="top-center" />
-            <TopNav />
+            <Suspense fallback={null}>
+              <TopNav />
+            </Suspense>
             <SessionProvider>{children}</SessionProvider>
           </PrivyAppProvider>
         </ThemeProvider>

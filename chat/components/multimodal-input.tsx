@@ -494,7 +494,7 @@ function PureModelSelectorCompact({
     chatModels.find((m) => m.id === selectedModelId) ??
     chatModels.find((m) => m.id === DEFAULT_CHAT_MODEL) ??
     chatModels[0];
-  const [provider] = selectedModel.id.split("/");
+  const provider = selectedModel.provider;
 
   // Provider display names
   const providerNames: Record<string, string> = {
@@ -523,7 +523,7 @@ function PureModelSelectorCompact({
                 key={providerKey}
               >
                 {providerModels.map((model) => {
-                  const logoProvider = model.id.split("/")[0];
+                  const logoProvider = model.provider;
                   return (
                     <ModelSelectorItem
                       key={model.id}

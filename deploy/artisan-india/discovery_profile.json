@@ -54,7 +54,7 @@
         "name": "org.ethereum.evm",
         "version": "2026-01-11",
         "config": {
-          "wallet_address": "{{MERCHANT_WALLET}}",
+          "wallet_address": "0xBc1C35D70071C9EeB91d1C697eE9745b045312C6",
           "merchant_name": "Artisan India"
         }
       }

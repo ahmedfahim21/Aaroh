@@ -2,7 +2,14 @@
 
 import { PrivyProvider } from "@privy-io/react-auth";
 import { useTheme } from "next-themes";
-import { sepolia } from "viem/chains";
+import {
+  arbitrum,
+  base,
+  baseSepolia,
+  mainnet,
+  optimism,
+  polygon,
+} from "viem/chains";
 
 const LOGIN_METHODS = [
   "wallet",
@@ -18,6 +25,15 @@ const WALLET_LIST = [
   "rainbow",
   "detected_ethereum_wallets",
   "wallet_connect_qr",
+] as const;
+
+const SUPPORTED_EVM_CHAINS = [
+  baseSepolia,
+  mainnet,
+  base,
+  optimism,
+  arbitrum,
+  polygon,
 ] as const;
 
 function PrivyProviderWithTheme({
@@ -36,15 +52,14 @@ function PrivyProviderWithTheme({
       appId={appId}
       config={{
         loginMethods: [...LOGIN_METHODS],
-        // Match app on-chain usage (agents / USDC on Sepolia) so the account modal
-        // shows native balance on Sepolia, not Ethereum mainnet.
-        defaultChain: sepolia,
-        supportedChains: [sepolia],
+        // Match app on-chain usage (agents / USDC on Base Sepolia) so the account modal
+        // defaults to Base Sepolia while still allowing users to view/switch other networks.
+        defaultChain: baseSepolia,
+        supportedChains: [...SUPPORTED_EVM_CHAINS],
         appearance: {
           theme: privyTheme,
           accentColor: "#1e293b",
           walletList: [...WALLET_LIST],
-          walletChainType: "ethereum-only",
         },
         embeddedWallets: {
           createOnLogin: "users-without-wallets",

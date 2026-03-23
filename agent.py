@@ -18,8 +18,8 @@ Environment variables:
     GEMINI_MODEL                – default "gemini-2.5-flash"
     MERCHANT_URL                – default merchant base URL
     X402_NETWORK                – default "eip155:84532" (Base Sepolia)
-    ERC8004_IDENTITY_REGISTRY   – IdentityRegistry contract on Ethereum Sepolia
-    IDENTITY_REGISTRY_RPC       – Sepolia RPC URL
+    ERC8004_IDENTITY_REGISTRY   – IdentityRegistry contract on Base Sepolia
+    IDENTITY_REGISTRY_RPC       – Base Sepolia RPC URL
     AGENT_INSTRUCTIONS          – initial system prompt suffix
     AGENT_TASK                  – run this task automatically on startup
 """
@@ -43,7 +43,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from shopping.agent_loop import run_shopping_agent
-from shopping.evm import USDC_ETH_SEPOLIA, agent_address
+from shopping.evm import USDC_BASE_SEPOLIA, agent_address
 from shopping.identity import get_or_register_eip8004_identity, register_with_key
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -189,11 +189,11 @@ def identity() -> dict[str, Any]:
         "erc8004": {
             "agent_id": agent_id,
             "identity_registry": os.environ.get("ERC8004_IDENTITY_REGISTRY") or None,
-            "network": "eip155:11155111",
+            "network": "eip155:84532",
         },
         "payment": {
-            "network": os.environ.get("X402_NETWORK", "eip155:11155111"),
-            "usdc_contract": USDC_ETH_SEPOLIA,
+            "network": os.environ.get("X402_NETWORK", "eip155:84532"),
+            "usdc_contract": USDC_BASE_SEPOLIA,
         },
     }
 

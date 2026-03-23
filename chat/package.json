@@ -21,6 +21,7 @@
     "@ai-sdk/anthropic": "^3.0.44",
     "@ai-sdk/google": "^3.0.43",
     "@ai-sdk/mcp": "^1.0.21",
+    "@ai-sdk/openai": "^3.0.47",
     "@ai-sdk/provider": "^3.0.3",
     "@ai-sdk/react": "3.0.39",
     "@codemirror/lang-javascript": "^6.2.2",

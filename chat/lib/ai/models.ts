@@ -26,6 +26,24 @@ export const chatModels: ChatModel[] = [
     provider: "google",
     description: "Most capable Gemini model for complex tasks",
   },
+  {
+    id: "gpt-4o-mini",
+    name: "GPT-4o mini",
+    provider: "openai",
+    description: "Fast and cost-effective OpenAI model for everyday chats",
+  },
+  {
+    id: "gpt-4.1",
+    name: "GPT-4.1",
+    provider: "openai",
+    description: "Strong general-purpose OpenAI model for complex tasks",
+  },
+  {
+    id: "o3-mini",
+    name: "o3-mini",
+    provider: "openai",
+    description: "Reasoning-focused OpenAI model for harder problem-solving",
+  },
 ];
 
 export const modelsByProvider = chatModels.reduce(
