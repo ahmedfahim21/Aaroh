@@ -50,6 +50,15 @@
   "payment": {
     "handlers": [
       {
+        "id": "evm",
+        "name": "org.ethereum.evm",
+        "version": "2026-01-11",
+        "config": {
+          "wallet_address": "{{MERCHANT_WALLET}}",
+          "merchant_name": "Dev Merchant"
+        }
+      },
+      {
         "id": "shop_pay",
         "name": "dev.shopify.shop_pay",
         "version": "2026-01-11",
