@@ -1158,11 +1158,6 @@ class CheckoutService:
               Total(type="discount", amount=discount_amount)
             )
 
-    # GST 18% (India) - applied to grand total before final total
-    gst_amount = int(grand_total * 0.18)
-    checkout.totals.append(Total(type="tax", amount=gst_amount))
-    grand_total += gst_amount
-
     checkout.totals.append(Total(type="total", amount=grand_total))
 
   async def _process_payment(self, payment: PaymentCreateRequest) -> None:

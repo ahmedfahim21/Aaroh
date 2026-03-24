@@ -48,7 +48,7 @@ export function useTaskSSE(taskId: string | null, eventsUrl?: string) {
     return () => {
       es.close();
     };
-  }, [taskId]);
+  }, [taskId, eventsUrl]);
 
   return { events, done };
 }

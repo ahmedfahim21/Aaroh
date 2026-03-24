@@ -35,7 +35,7 @@ def _build_payment_payload(account: Account, to_address: str, amount_micro_usdc:
     valid_before = int(time.time()) + 3600
 
     domain_data = {
-        "name": "USD Coin",
+        "name": "USDC",
         "version": "2",
         "chainId": BASE_SEPOLIA_CHAIN_ID,
         "verifyingContract": USDC_BASE_SEPOLIA,
@@ -63,7 +63,7 @@ def _build_payment_payload(account: Account, to_address: str, amount_micro_usdc:
     signed = account.sign_message(encoded_msg)
 
     payload = {
-        "x402Version": 1,
+        "x402Version": 2,
         "scheme": "exact",
         "network": network,
         "payload": {
@@ -75,6 +75,19 @@ def _build_payment_payload(account: Account, to_address: str, amount_micro_usdc:
                 "validAfter": "0",
                 "validBefore": str(valid_before),
                 "nonce": nonce,
+            },
+        },
+        "accepted": {
+            "scheme": "exact",
+            "network": network,
+            "payTo": to_address,
+            "amount": str(amount_micro_usdc),
+            "asset": USDC_BASE_SEPOLIA,
+            "maxTimeoutSeconds": 300,
+            "extra": {
+                "name": "USDC",
+                "version": "2",
+                "assetTransferMethod": "eip3009",
             },
         },
     }

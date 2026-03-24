@@ -45,6 +45,9 @@ from ucp_sdk.models.schemas.shopping.payment_create_req import (
 from ucp_sdk.models.schemas.shopping.types.payment_instrument import (
   PaymentInstrument,
 )
+from ucp_sdk.models.schemas.shopping.types.payment_instrument_base import (
+  PaymentInstrumentBase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,8 +224,12 @@ async def complete_checkout(
       detail="payment_data is required when x402 is not configured",
     )
 
-  # Map payment_data (single instrument) to PaymentCreateRequest
-  instrument = PaymentInstrument(root=payment_data)
+  # Map payment_data (single instrument) to PaymentCreateRequest.
+  # Use model_construct to bypass strict CardPaymentInstrument validation
+  # so EVM token instruments (type="token") are accepted alongside card ones.
+  instrument = PaymentInstrument.model_construct(
+    root=PaymentInstrumentBase.model_construct(**payment_data)
+  )
   payment_req = PaymentCreateRequest(
     selected_instrument_id=payment_data.get("id"),
     instruments=[instrument],

@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useWallets } from "@privy-io/react-auth";
-import { getAddress, isAddress } from "viem";
+import { createWalletClient, custom, getAddress, isAddress } from "viem";
+import { baseSepolia } from "viem/chains";
 import { cn } from "@/lib/utils";
 
 // USDC on Base Sepolia
-const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCf7e" as const;
+const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCf7e";
 const BASE_SEPOLIA_CHAIN_ID = 84532;
 
 export type CheckoutViewData = {
@@ -36,13 +37,8 @@ type WalletRpcErrorLike = {
   data?: unknown;
 };
 
-type WalletRequestArgs = {
-  method: string;
-  params?: unknown[];
-};
-
 type EthereumProvider = {
-  request: (args: WalletRequestArgs) => Promise<unknown>;
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
 function normalizeWalletError(error: unknown): {
@@ -69,66 +65,6 @@ function normalizeWalletError(error: unknown): {
   };
 }
 
-function isInvalidInputRpcError(error: unknown): boolean {
-  const normalized = normalizeWalletError(error);
-  const lowerMessage = normalized.message.toLowerCase();
-  return (
-    (normalized.code === -32000 && lowerMessage.includes("invalid input")) ||
-    (normalized.code === -32602 &&
-      (lowerMessage.includes("invalid parameters") ||
-        lowerMessage.includes("ethereum address")))
-  );
-}
-
-async function signTypedDataV4WithFallback(
-  provider: EthereumProvider,
-  fromAddress: string,
-  typedData: unknown
-): Promise<string> {
-  const typedDataJson = JSON.stringify(typedData);
-  const candidateParams: unknown[][] = [
-    [fromAddress, typedDataJson],
-    [fromAddress, typedData],
-    [typedDataJson, fromAddress],
-    [typedData, fromAddress],
-    [{ from: fromAddress, data: typedDataJson }],
-    [{ from: fromAddress, data: typedData }],
-    [{ address: fromAddress, data: typedDataJson }],
-    [{ address: fromAddress, data: typedData }],
-  ];
-
-  let lastError: unknown;
-  for (let index = 0; index < candidateParams.length; index++) {
-    const params = candidateParams[index];
-    try {
-      const signature = await provider.request({
-        method: "eth_signTypedData_v4",
-        params,
-      });
-      if (typeof signature !== "string") {
-        throw new Error("Wallet returned a non-string signature.");
-      }
-      return signature;
-    } catch (error) {
-      lastError = error;
-      const shouldRetry =
-        index < candidateParams.length - 1 && isInvalidInputRpcError(error);
-      if (!shouldRetry) {
-        throw error;
-      }
-
-      if (process.env.NODE_ENV !== "production") {
-        console.warn("eth_signTypedData_v4 attempt failed; trying next shape", {
-          attempt: index + 1,
-          totalAttempts: candidateParams.length,
-          error: normalizeWalletError(error),
-        });
-      }
-    }
-  }
-
-  throw lastError ?? new Error("Wallet failed to sign typed data.");
-}
 
 export function CheckoutView({ data, className }: CheckoutViewProps) {
   const { wallets } = useWallets();
@@ -232,20 +168,27 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
       // Random 32-byte nonce
       const nonceBytes = new Uint8Array(32);
       crypto.getRandomValues(nonceBytes);
-      const nonceHex =
-        "0x" +
+      const nonceHex = ("0x" +
         Array.from(nonceBytes)
           .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
+          .join("")) as `0x${string}`;
 
-      const validBefore = Math.floor(Date.now() / 1000) + 3600;
+      const validBefore = BigInt(Math.floor(Date.now() / 1000) + 3600);
 
-      const typedData = {
+      // Use viem walletClient.signTypedData — handles EIP-712 encoding correctly
+      // and works reliably with Privy's EIP-1193 provider.
+      const walletClient = createWalletClient({
+        account: fromAddress as `0x${string}`,
+        chain: baseSepolia,
+        transport: custom(provider),
+      });
+
+      const signature = await walletClient.signTypedData({
         domain: {
-          name: "USD Coin",
+          name: "USDC",
           version: "2",
           chainId: BASE_SEPOLIA_CHAIN_ID,
-          verifyingContract: USDC_ADDRESS,
+          verifyingContract: getAddress(USDC_ADDRESS),
         },
         types: {
           TransferWithAuthorization: [
@@ -259,23 +202,17 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
         },
         primaryType: "TransferWithAuthorization",
         message: {
-          from: fromAddress,
-          to: toAddress,
-          value: amountMicroUsdc.toString(),
-          validAfter: "0",
-          validBefore: validBefore.toString(),
+          from: fromAddress as `0x${string}`,
+          to: toAddress as `0x${string}`,
+          value: amountMicroUsdc,
+          validAfter: 0n,
+          validBefore,
           nonce: nonceHex,
         },
-      };
-
-      const signature = await signTypedDataV4WithFallback(
-        provider,
-        fromAddress,
-        typedData
-      );
+      });
 
       const payload = {
-        x402Version: 1,
+        x402Version: 2,
         scheme: "exact",
         network: "eip155:84532",
         payload: {
@@ -287,6 +224,19 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
             validAfter: "0",
             validBefore: validBefore.toString(),
             nonce: nonceHex,
+          },
+        },
+        accepted: {
+          scheme: "exact",
+          network: "eip155:84532",
+          payTo: toAddress,
+          amount: amountMicroUsdc.toString(),
+          asset: USDC_ADDRESS,
+          maxTimeoutSeconds: 300,
+          extra: {
+            name: "USDC",
+            version: "2",
+            assetTransferMethod: "eip3009",
           },
         },
       };
@@ -308,7 +258,17 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
       const result = await res.json();
 
       if (!res.ok) {
-        throw new Error(result?.error ?? `Payment failed (${res.status})`);
+        const detail = result?.detail;
+        const detailStr = detail
+          ? typeof detail === "string"
+            ? detail
+            : JSON.stringify(detail)
+          : null;
+        throw new Error(
+          detailStr
+            ? `${result?.error ?? "Payment failed"}: ${detailStr}`
+            : result?.error ?? `Payment failed (${res.status})`
+        );
       }
 
       setTxInfo(result?.order?.id ?? "confirmed");

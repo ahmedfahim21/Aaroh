@@ -37,7 +37,20 @@ export async function POST(req: Request) {
       body: JSON.stringify({}),
     })
 
-    const data = await merchantRes.json()
+    let data: unknown
+    const contentType = merchantRes.headers.get('content-type') ?? ''
+    if (contentType.includes('application/json')) {
+      data = await merchantRes.json()
+    } else {
+      const text = await merchantRes.text()
+      if (!merchantRes.ok) {
+        return NextResponse.json(
+          { error: `Merchant error (${merchantRes.status}): ${text.slice(0, 300)}` },
+          { status: merchantRes.status },
+        )
+      }
+      data = { raw: text }
+    }
 
     if (!merchantRes.ok) {
       return NextResponse.json(

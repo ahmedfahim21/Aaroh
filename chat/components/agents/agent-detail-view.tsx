@@ -24,6 +24,7 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
   const { wallets } = useWallets();
   const [selectedSession, setSelectedSession] = useState<AgentSession | null>(null);
   const [task, setTask] = useState("");
+  const [merchantUrl, setMerchantUrl] = useState("");
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState("");
 
@@ -47,10 +48,15 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
         agentPrivateKey = deriveAgentKey(sig, agent.id);
       }
 
+      const trimmedUrl = merchantUrl.trim();
+      const availableMerchants = trimmedUrl
+        ? [{ name: trimmedUrl, url: trimmedUrl }]
+        : [];
+
       const res = await fetch(`/api/agents/${agent.id}/sessions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ task: task.trim(), agentPrivateKey }),
+        body: JSON.stringify({ task: task.trim(), agentPrivateKey, availableMerchants }),
       });
 
       if (!res.ok) {
@@ -82,6 +88,14 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
 
         {/* Dispatch form */}
         <div className="px-3 py-3 border-b shrink-0 flex flex-col gap-2">
+          <input
+            type="url"
+            value={merchantUrl}
+            onChange={(e) => setMerchantUrl(e.target.value)}
+            placeholder="Merchant URL (e.g. http://localhost:8000)"
+            disabled={dispatching}
+            className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+          />
           <textarea
             value={task}
             onChange={(e) => setTask(e.target.value)}

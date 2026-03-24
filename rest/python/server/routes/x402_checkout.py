@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCf7e"
+
 import httpx
 from fastapi import HTTPException, Request
 
@@ -106,19 +108,21 @@ async def handle_x402_checkout(
     # 1 USDC = 1_000_000 micro-USDC → cents × 10_000 = micro-USDC.
     amount_usdc_micro = str(total_minor_units * 10_000)
 
-    resource = f"/checkout-sessions/{checkout_id}/complete"
     accepts_entry: dict[str, Any] = {
         "scheme": "exact",
         "network": network,
         "payTo": merchant_wallet,
-        "maxAmountRequired": amount_usdc_micro,
-        "resource": resource,
-        "description": f"Payment for checkout {checkout_id}",
-        "mimeType": "application/json",
+        "amount": amount_usdc_micro,
+        "asset": USDC_BASE_SEPOLIA,
         "maxTimeoutSeconds": 300,
+        "extra": {
+            "name": "USDC",
+            "version": "2",
+            "assetTransferMethod": "eip3009",
+        },
     }
     payment_required_body = {
-        "x402Version": 1,
+        "x402Version": 2,
         "accepts": [accepts_entry],
         "error": "",
     }
@@ -137,7 +141,7 @@ async def handle_x402_checkout(
 
     # Decode the signed payment payload the client sent back.
     try:
-        payment_payload = json.loads(base64.b64decode(x_payment))
+        payment_payload = json.loads(base64.b64decode(x_payment + "=="))
     except Exception as exc:
         raise HTTPException(
             status_code=402,
@@ -145,32 +149,53 @@ async def handle_x402_checkout(
         ) from exc
 
     # Verify with facilitator.
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         verify_resp = await client.post(
             f"{facilitator_url}/verify",
-            json={"payload": payment_payload, "requirements": accepts_entry},
+            json={
+                "x402Version": 2,
+                "paymentPayload": payment_payload,
+                "paymentRequirements": accepts_entry,
+            },
         )
 
-    verify_data = verify_resp.json()
+    try:
+        verify_data = verify_resp.json()
+    except Exception:
+        raise HTTPException(
+            status_code=402,
+            detail=f"x402 facilitator /verify returned non-JSON ({verify_resp.status_code}): {verify_resp.text[:200]}",
+        )
     if verify_resp.status_code != 200 or not verify_data.get("isValid"):
-        reason = verify_data.get("invalidReason", "unknown")
+        reason = verify_data.get("invalidReason") or verify_data.get("error") or str(verify_data)
         raise HTTPException(
             status_code=402,
             detail=f"x402 payment verification failed: {reason}",
         )
 
     # Settle on-chain.
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
         settle_resp = await client.post(
             f"{facilitator_url}/settle",
-            json={"payload": payment_payload, "requirements": accepts_entry},
+            json={
+                "x402Version": 2,
+                "paymentPayload": payment_payload,
+                "paymentRequirements": accepts_entry,
+            },
         )
 
-    settle_data = settle_resp.json()
-    if settle_resp.status_code != 200 or not settle_data.get("success"):
+    try:
+        settle_data = settle_resp.json()
+    except Exception:
         raise HTTPException(
             status_code=402,
-            detail="x402 payment settlement failed",
+            detail=f"x402 facilitator /settle returned non-JSON ({settle_resp.status_code}): {settle_resp.text[:200]}",
+        )
+    if settle_resp.status_code != 200 or not settle_data.get("success"):
+        reason = settle_data.get("error") or settle_data.get("errorReason") or str(settle_data)
+        raise HTTPException(
+            status_code=402,
+            detail=f"x402 payment settlement failed: {reason}",
         )
 
     tx_hash = settle_data.get("transaction", "x402_settled")
