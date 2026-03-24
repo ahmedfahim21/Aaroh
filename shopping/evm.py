@@ -9,11 +9,12 @@ import time
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
-USDC_ETH_SEPOLIA = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
-ETH_SEPOLIA_CHAIN_ID = 11155111
+USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCf7e"
+BASE_SEPOLIA_CHAIN_ID = 84532
 
-# Legacy alias — keep so any existing imports don't break
-USDC_BASE_SEPOLIA = USDC_ETH_SEPOLIA
+# Legacy aliases — keep so any existing imports don't break
+USDC_ETH_SEPOLIA = USDC_BASE_SEPOLIA
+ETH_SEPOLIA_CHAIN_ID = BASE_SEPOLIA_CHAIN_ID
 
 
 def agent_account() -> Account:
@@ -29,15 +30,15 @@ def agent_address() -> str:
 
 def _build_payment_payload(account: Account, to_address: str, amount_micro_usdc: int) -> str:
     """Shared EIP-3009 signing logic."""
-    network = os.environ.get("X402_NETWORK", "eip155:11155111")
+    network = os.environ.get("X402_NETWORK", "eip155:84532")
     nonce = "0x" + secrets.token_hex(32)
     valid_before = int(time.time()) + 3600
 
     domain_data = {
-        "name": "USD Coin",
+        "name": "USDC",
         "version": "2",
-        "chainId": ETH_SEPOLIA_CHAIN_ID,
-        "verifyingContract": USDC_ETH_SEPOLIA,
+        "chainId": BASE_SEPOLIA_CHAIN_ID,
+        "verifyingContract": USDC_BASE_SEPOLIA,
     }
     message_types = {
         "TransferWithAuthorization": [
@@ -62,7 +63,7 @@ def _build_payment_payload(account: Account, to_address: str, amount_micro_usdc:
     signed = account.sign_message(encoded_msg)
 
     payload = {
-        "x402Version": 1,
+        "x402Version": 2,
         "scheme": "exact",
         "network": network,
         "payload": {
@@ -74,6 +75,19 @@ def _build_payment_payload(account: Account, to_address: str, amount_micro_usdc:
                 "validAfter": "0",
                 "validBefore": str(valid_before),
                 "nonce": nonce,
+            },
+        },
+        "accepted": {
+            "scheme": "exact",
+            "network": network,
+            "payTo": to_address,
+            "amount": str(amount_micro_usdc),
+            "asset": USDC_BASE_SEPOLIA,
+            "maxTimeoutSeconds": 300,
+            "extra": {
+                "name": "USDC",
+                "version": "2",
+                "assetTransferMethod": "eip3009",
             },
         },
     }

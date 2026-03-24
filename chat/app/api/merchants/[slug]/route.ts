@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { NextResponse } from 'next/server'
 import {
@@ -57,6 +57,18 @@ export async function POST(
 
     const port = getNextPort()
 
+    // Read merchant wallet from discovery profile to pass as env var
+    let merchantWallet = ''
+    try {
+      const profile = JSON.parse(readFileSync(discoveryProfile, 'utf8'))
+      const handlers: Array<{ id?: string; config?: { wallet_address?: string } }> =
+        profile?.payment?.handlers ?? []
+      merchantWallet =
+        handlers.find((h) => h.id === 'evm')?.config?.wallet_address ?? ''
+    } catch {
+      // profile unreadable — x402 will be disabled
+    }
+
     const child = spawn(
       'uv',
       [
@@ -67,7 +79,14 @@ export async function POST(
         `--discovery_profile_path=${discoveryProfile}`,
         `--port=${port}`,
       ],
-      { cwd: SERVER_DIR, detached: false },
+      {
+        cwd: SERVER_DIR,
+        detached: false,
+        env: {
+          ...process.env,
+          ...(merchantWallet ? { MERCHANT_WALLET: merchantWallet } : {}),
+        },
+      },
     )
 
     runningProcesses.set(slug, {

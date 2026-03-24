@@ -23,6 +23,7 @@ from exceptions import UcpError
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import generated_routes.ucp_routes
 from routes.discovery import router as discovery_router
 from routes.order import router as order_router
@@ -52,6 +53,16 @@ def create_app() -> FastAPI:
     return JSONResponse(
       status_code=exc.status_code,
       content={"detail": exc.message, "code": exc.code},
+    )
+
+  @app.exception_handler(Exception)
+  async def generic_exception_handler(request: Request, exc: Exception):
+    """Convert unhandled exceptions to JSON so clients see the real error."""
+    del request  # Unused.
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+      status_code=500,
+      content={"detail": f"{type(exc).__name__}: {exc}"},
     )
 
   # Apply business logic implementation to generated routes

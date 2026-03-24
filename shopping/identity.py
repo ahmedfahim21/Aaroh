@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from eth_account import Account
-from shopping.evm import ETH_SEPOLIA_CHAIN_ID, agent_account
+from shopping.evm import BASE_SEPOLIA_CHAIN_ID, agent_account
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def get_or_register_eip8004_identity() -> int | None:
 
         rpc_url = os.environ.get(
             "IDENTITY_REGISTRY_RPC",
-            "https://rpc.sepolia.org",
+            "https://sepolia.base.org",
         )
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         account = agent_account()
@@ -91,7 +91,7 @@ def get_or_register_eip8004_identity() -> int | None:
         tx = contract.functions.register().build_transaction({
             "from": account.address,
             "nonce": nonce,
-            "chainId": ETH_SEPOLIA_CHAIN_ID,
+            "chainId": BASE_SEPOLIA_CHAIN_ID,
         })
         tx["gas"] = w3.eth.estimate_gas(tx)
         tx["gasPrice"] = w3.eth.gas_price
@@ -126,7 +126,7 @@ def register_with_key(private_key_hex: str) -> int | None:
     try:
         from web3 import Web3  # noqa: PLC0415
 
-        rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://rpc.sepolia.org")
+        rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://sepolia.base.org")
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         account = Account.from_key(private_key_hex)
         checksum_addr = Web3.to_checksum_address(registry_addr)
@@ -149,7 +149,7 @@ def register_with_key(private_key_hex: str) -> int | None:
         tx = contract.functions.register().build_transaction({
             "from": account.address,
             "nonce": nonce,
-            "chainId": ETH_SEPOLIA_CHAIN_ID,
+            "chainId": BASE_SEPOLIA_CHAIN_ID,
         })
         tx["gas"] = w3.eth.estimate_gas(tx)
         tx["gasPrice"] = w3.eth.gas_price

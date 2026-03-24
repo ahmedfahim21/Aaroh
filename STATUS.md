@@ -46,7 +46,7 @@
 - **API routes:** Full CRUD for agents, merchants, sessions; SSE proxy for agent events
 
 ### Crypto & Identity
-- EIP-3009 USDC payment signing (Ethereum Sepolia)
+- EIP-3009 USDC payment signing (Base Sepolia)
 - EIP-8004 agent identity on-chain (IdentityRegistry NFT)
 - x402 dynamic payment requirement + facilitator settlement
 - Per-agent key derivation (never stored, client-side only)
@@ -67,17 +67,17 @@
 | Wallet | Privy (`@privy-io/react-auth`) |
 | Python services | FastAPI, SQLAlchemy, eth-account, web3.py, httpx |
 | Storage | PostgreSQL (web app), SQLite (merchant servers) |
-| Payments | USDC EIP-3009 on Ethereum Sepolia via x402 |
-| Identity | EIP-8004 on Ethereum Sepolia |
+| Payments | USDC EIP-3009 on Base Sepolia via x402 |
+| Identity | EIP-8004 on Base Sepolia |
 | File storage | Vercel Blob |
 
 ---
 
-## Deployed Contracts (Ethereum Sepolia)
+## Deployed Contracts (Base Sepolia)
 
 | Contract | Address |
 |---|---|
 | IdentityRegistry | `0x7343dFdc3E9adf2B4D2645bE7Cb12426dB5cae1e` |
 | ReputationRegistry | `0x0a41808952EBeF39Ae90E2f71B44586C47fCD9b5` |
 | ValidationRegistry | `0x862b7c3F12990aF971a76F249D5B57efe7465F3E` |
-| USDC (Sepolia) | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
+| USDC (Base Sepolia) | `0x036CbD53842c5426634e7929541eC2318f3dCf7e` |

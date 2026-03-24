@@ -284,6 +284,7 @@ class ShoppingSession:
             "checkout_session_id": self.checkout_session_id,
             "order_total": total_amount,
             "wallet_address": wallet_address,
+            "merchant_url": self.merchant_base_url,
             "message": (
                 "Sign an EIP-3009 USDC authorisation in your EVM wallet for the amount above, "
                 "then call complete_checkout(x_payment) with the resulting base64 X-PAYMENT string."
@@ -305,7 +306,9 @@ class ShoppingSession:
                     headers={**self._ucp_headers(), "X-PAYMENT": x_payment},
                 )
                 if r.status_code == 402:
-                    return json.dumps({"error": "Payment rejected.", "detail": r.json()})
+                    body = r.json()
+                    detail = body.get("detail", body)
+                    return json.dumps({"error": "Payment rejected.", "detail": detail})
                 r.raise_for_status()
                 result = r.json()
         except httpx.HTTPError as e:
@@ -354,10 +357,13 @@ class ShoppingSession:
                         headers=self._ucp_headers(),
                     )
                     if probe.status_code == 402:
-                        accepts = probe.json().get("accepts", [])
+                        body = probe.json()
+                        # FastAPI wraps HTTPException detail in {"detail": ...}
+                        payment_required = body.get("detail", body)
+                        accepts = payment_required.get("accepts", [])
                         if accepts:
                             merchant_wallet = accepts[0].get("payTo")
-                            req_amount = accepts[0].get("maxAmountRequired")
+                            req_amount = accepts[0].get("amount") or accepts[0].get("maxAmountRequired")
                             if req_amount:
                                 amount_micro_usdc = int(req_amount)
             except Exception as exc:
@@ -386,7 +392,9 @@ class ShoppingSession:
                     headers={**self._ucp_headers(), "X-PAYMENT": x_payment},
                 )
                 if r.status_code == 402:
-                    return json.dumps({"error": "Payment rejected by merchant.", "detail": r.json()})
+                    body = r.json()
+                    detail = body.get("detail", body)
+                    return json.dumps({"error": "Payment rejected by merchant.", "detail": detail})
                 r.raise_for_status()
                 result = r.json()
         except httpx.HTTPError as e:
