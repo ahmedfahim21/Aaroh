@@ -188,6 +188,15 @@ On first run, the agent registers an EIP-8004 identity on Ethereum Sepolia (NFT 
 
 ---
 
+
+### 7. Start the Landing Page (Optional)
+
+```bash
+cd landing
+pnpm install
+pnpm dev           # http://localhost:4000
+```
+
 ## Database Migrations
 
 `consumer/` is the **single source of truth** for all DB migrations. Both apps share the same PostgreSQL database.
