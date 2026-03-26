@@ -16,6 +16,7 @@
 
 from typing import Annotated, Any
 
+import db
 import dependencies
 from fastapi import APIRouter
 from fastapi import Body
@@ -23,8 +24,23 @@ from fastapi import Depends
 from fastapi import Path
 from models import UnifiedOrder
 from services.checkout_service import CheckoutService
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
+
+
+@router.get(
+  "/orders",
+  response_model=dict[str, Any],
+  operation_id="list_orders",
+  summary="List all orders",
+)
+async def list_orders(
+  transactions_session: AsyncSession = Depends(dependencies.get_transactions_db),
+) -> dict[str, Any]:
+  """List all orders."""
+  orders = await db.list_orders(transactions_session)
+  return {"orders": orders, "count": len(orders)}
 
 
 @router.get(

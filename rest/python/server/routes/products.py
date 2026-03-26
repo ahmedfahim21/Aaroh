@@ -117,6 +117,35 @@ async def get_product(
   return out
 
 
+@router.get("/products-inventory", summary="List products with inventory")
+async def list_products_with_inventory(
+  limit: int = 500,
+  products_session: AsyncSession = Depends(dependencies.get_products_db),
+  transactions_session: AsyncSession = Depends(dependencies.get_transactions_db),
+) -> dict[str, Any]:
+  """List products with their current inventory quantities."""
+  if limit > 500:
+    limit = 500
+  products = await db.list_products(products_session, limit=limit)
+  inventory = await db.list_inventory(transactions_session)
+  catalogue = _catalogue_by_id()
+  items = []
+  for p in products:
+    row: dict[str, Any] = {
+      "id": p.id,
+      "title": p.title,
+      "price": p.price,
+      "image_url": p.image_url,
+      "stock": inventory.get(p.id, 0),
+    }
+    if p.id in catalogue:
+      meta = catalogue[p.id]
+      row["category"] = meta.get("category")
+      row["description"] = meta.get("description")
+    items.append(row)
+  return {"products": items, "count": len(items)}
+
+
 @router.get("/catalogue", summary="Get full catalogue")
 async def get_catalogue() -> dict[str, Any]:
   """Return full catalogue with rich metadata (descriptions, categories, artisan info)."""

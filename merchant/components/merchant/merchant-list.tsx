@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MerchantInfo } from "@/app/api/merchants/route";
+import { MerchantDetailModal } from "./merchant-detail-modal";
 
 export function MerchantList() {
   const [merchants, setMerchants] = useState<MerchantInfo[]>([]);
@@ -12,6 +13,7 @@ export function MerchantList() {
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const logRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [detailSlug, setDetailSlug] = useState<string | null>(null);
 
   const fetchMerchants = useCallback(async () => {
     const res = await fetch("/api/merchants");
@@ -86,8 +88,12 @@ export function MerchantList() {
     setExpandedLogs((prev) => ({ ...prev, [slug]: !prev[slug] }));
   };
 
+  const detailMerchant = detailSlug
+    ? merchants.find((m) => m.slug === detailSlug)
+    : null;
+
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading merchants…</p>;
+    return <p className="text-sm text-muted-foreground">Loading merchants...</p>;
   }
 
   if (!merchants.length) {
@@ -99,7 +105,7 @@ export function MerchantList() {
             className="underline hover:text-foreground"
             href="/onboard"
           >
-            Onboard one now →
+            Onboard one now &rarr;
           </a>
         </p>
       </div>
@@ -107,23 +113,37 @@ export function MerchantList() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {merchants.map((m) => (
-        <MerchantCard
-          isActing={!!actionLoading[m.slug]}
-          key={m.slug}
-          logRef={(el) => {
-            logRefs.current[m.slug] = el;
+    <>
+      <div className="flex flex-col gap-3">
+        {merchants.map((m) => (
+          <MerchantCard
+            isActing={!!actionLoading[m.slug]}
+            key={m.slug}
+            logRef={(el) => {
+              logRefs.current[m.slug] = el;
+            }}
+            logs={logs[m.slug] ?? []}
+            logsExpanded={!!expandedLogs[m.slug]}
+            merchant={m}
+            onStart={() => handleAction(m.slug, "start")}
+            onStop={() => handleAction(m.slug, "stop")}
+            onToggleLogs={() => toggleLogs(m.slug)}
+            onViewDetail={() => setDetailSlug(m.slug)}
+          />
+        ))}
+      </div>
+
+      {detailMerchant && (
+        <MerchantDetailModal
+          slug={detailMerchant.slug}
+          name={detailMerchant.name}
+          open={!!detailSlug}
+          onOpenChange={(open) => {
+            if (!open) setDetailSlug(null);
           }}
-          logs={logs[m.slug] ?? []}
-          logsExpanded={!!expandedLogs[m.slug]}
-          merchant={m}
-          onStart={() => handleAction(m.slug, "start")}
-          onStop={() => handleAction(m.slug, "stop")}
-          onToggleLogs={() => toggleLogs(m.slug)}
         />
-      ))}
-    </div>
+      )}
+    </>
   );
 }
 
@@ -136,6 +156,7 @@ function MerchantCard({
   onStart,
   onStop,
   onToggleLogs,
+  onViewDetail,
 }: {
   merchant: MerchantInfo;
   logs: string[];
@@ -145,6 +166,7 @@ function MerchantCard({
   onStart: () => void;
   onStop: () => void;
   onToggleLogs: () => void;
+  onViewDetail: () => void;
 }) {
   const {
     name,
@@ -220,7 +242,7 @@ function MerchantCard({
                 localhost:{port}
               </a>
               {startedAt && (
-                <> · started {new Date(startedAt).toLocaleTimeString()}</>
+                <> &middot; started {new Date(startedAt).toLocaleTimeString()}</>
               )}
             </p>
           )}
@@ -228,13 +250,22 @@ function MerchantCard({
 
         <div className="flex items-center gap-2 shrink-0">
           {running && (
-            <button
-              className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted"
-              onClick={onToggleLogs}
-              type="button"
-            >
-              {logsExpanded ? "Hide logs" : "Logs"}
-            </button>
+            <>
+              <button
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={onViewDetail}
+                type="button"
+              >
+                View
+              </button>
+              <button
+                className="rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted"
+                onClick={onToggleLogs}
+                type="button"
+              >
+                {logsExpanded ? "Hide logs" : "Logs"}
+              </button>
+            </>
           )}
           {running ? (
             <button
@@ -243,7 +274,7 @@ function MerchantCard({
               onClick={onStop}
               type="button"
             >
-              {isActing ? "Stopping…" : "Stop"}
+              {isActing ? "Stopping..." : "Stop"}
             </button>
           ) : (
             <button
@@ -253,7 +284,7 @@ function MerchantCard({
               title={merchant.hasProducts ? undefined : "products.db not found"}
               type="button"
             >
-              {isActing ? "Starting…" : "Start"}
+              {isActing ? "Starting..." : "Start"}
             </button>
           )}
         </div>
@@ -265,7 +296,7 @@ function MerchantCard({
           ref={logRef}
         >
           {logs.length === 0 ? (
-            <span className="text-slate-500">No logs yet…</span>
+            <span className="text-slate-500">No logs yet...</span>
           ) : (
             logs.map((line, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: log lines

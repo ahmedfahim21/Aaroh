@@ -491,6 +491,19 @@ async def get_order(
   return None
 
 
+async def list_orders(session: AsyncSession) -> list[dict[str, Any]]:
+  """List all orders."""
+  result = await session.execute(select(Order))
+  rows = result.scalars().all()
+  return [{"id": r.id, **(r.data or {})} for r in rows]
+
+
+async def list_inventory(session: AsyncSession) -> dict[str, int]:
+  """Return a mapping of product_id -> quantity for all inventory rows."""
+  result = await session.execute(select(Inventory))
+  return {r.product_id: r.quantity for r in result.scalars().all()}
+
+
 async def log_request(
   session: AsyncSession,
   method: str,

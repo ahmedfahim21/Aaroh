@@ -285,10 +285,6 @@ class ShoppingSession:
             "order_total": total_amount,
             "wallet_address": wallet_address,
             "merchant_url": self.merchant_base_url,
-            "message": (
-                "Sign an EIP-3009 USDC authorisation in your EVM wallet for the amount above, "
-                "then call complete_checkout(x_payment) with the resulting base64 X-PAYMENT string."
-            ),
         })
 
     def complete_checkout(self, x_payment: str) -> str:
