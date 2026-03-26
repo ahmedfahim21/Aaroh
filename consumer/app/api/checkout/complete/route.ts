@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { saveConsumerOrder } from '@/lib/db/queries-orders'
 
 /**
  * Proxy endpoint: forwards a signed x402 payment to the merchant's UCP server.
@@ -57,6 +58,37 @@ export async function POST(req: Request) {
         { error: 'Merchant rejected payment.', detail: data },
         { status: merchantRes.status },
       )
+    }
+
+    // Save the order to consumer DB for transaction history
+    try {
+      const orderData = data as Record<string, unknown>
+      const orderId = (orderData.id as string) ?? checkout_session_id
+      const lineItems = (orderData.line_items as Array<{
+        item?: { title?: string; price?: number }
+        quantity?: number
+      }>) ?? []
+      const totals = (orderData.totals as Array<{ type?: string; amount?: number }>) ?? []
+      const total = totals.find((t) => t.type === 'total')
+      const paymentInstruments = (
+        (orderData.payment as Record<string, unknown>)?.instruments as Array<{ type?: string }>
+      ) ?? []
+
+      await saveConsumerOrder({
+        orderId,
+        merchantUrl: merchant_url,
+        totalCents: total?.amount,
+        lineItems: lineItems.map((li) => ({
+          title: li.item?.title ?? 'Item',
+          quantity: li.quantity ?? 1,
+          price: li.item?.price ?? 0,
+        })),
+        status: (orderData.status as string) ?? 'completed',
+        paymentType: paymentInstruments[0]?.type,
+        orderData,
+      })
+    } catch {
+      // Don't fail the checkout if saving to consumer DB fails
     }
 
     return NextResponse.json(data)

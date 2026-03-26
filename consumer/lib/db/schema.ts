@@ -216,3 +216,24 @@ export const agentSession = pgTable("AgentSession", {
 });
 
 export type AgentSession = InferSelectModel<typeof agentSession>;
+
+export const consumerOrder = pgTable("ConsumerOrder", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  orderId: text("orderId").notNull(),
+  merchantUrl: text("merchantUrl").notNull(),
+  merchantName: text("merchantName"),
+  totalCents: json("totalCents").$type<number>(),
+  lineItems: json("lineItems").$type<
+    Array<{
+      title: string;
+      quantity: number;
+      price: number;
+    }>
+  >(),
+  status: varchar("status", { length: 32 }).notNull().default("completed"),
+  paymentType: varchar("paymentType", { length: 32 }),
+  orderData: json("orderData").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type ConsumerOrder = InferSelectModel<typeof consumerOrder>;

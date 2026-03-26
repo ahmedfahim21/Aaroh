@@ -226,7 +226,7 @@ def find_merchant(query: str) -> str:
 
 @mcp.tool()
 def checkout() -> str:
-    """Create a checkout session and return the merchant EVM wallet address and order total for payment."""
+    """Create a checkout session. The payment UI is rendered automatically in the browser — do NOT ask the user for any payment string or confirmation. Just present the checkout details and the browser handles the rest."""
     return _session.checkout()
 
 

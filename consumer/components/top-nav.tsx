@@ -12,6 +12,11 @@ const NAV_LINKS = [
     match: (p: string) => p.startsWith("/chat"),
   },
   {
+    href: "/transactions",
+    label: "Transactions",
+    match: (p: string) => p.startsWith("/transactions"),
+  },
+  {
     href: "/agents",
     label: "Agents",
     match: (p: string) => p.startsWith("/agents"),
