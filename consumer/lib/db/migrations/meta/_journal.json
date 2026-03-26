@@ -99,6 +99,13 @@
       "when": 1774537796955,
       "tag": "0013_curved_morph",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774600000000,
+      "tag": "0014_tidy_total_cents_integer",
+      "breakpoints": true
     }
   ]
 }

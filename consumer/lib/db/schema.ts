@@ -2,6 +2,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import {
   boolean,
   foreignKey,
+  integer,
   json,
   pgTable,
   primaryKey,
@@ -222,7 +223,7 @@ export const consumerOrder = pgTable("ConsumerOrder", {
   orderId: text("orderId").notNull(),
   merchantUrl: text("merchantUrl").notNull(),
   merchantName: text("merchantName"),
-  totalCents: json("totalCents").$type<number>(),
+  totalCents: integer("totalCents"),
   lineItems: json("lineItems").$type<
     Array<{
       title: string;

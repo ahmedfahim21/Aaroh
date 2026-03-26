@@ -119,11 +119,14 @@ async def get_product(
 
 @router.get("/products-inventory", summary="List products with inventory")
 async def list_products_with_inventory(
+  limit: int = 500,
   products_session: AsyncSession = Depends(dependencies.get_products_db),
   transactions_session: AsyncSession = Depends(dependencies.get_transactions_db),
 ) -> dict[str, Any]:
-  """List all products with their current inventory quantities."""
-  products = await db.list_products(products_session, limit=500)
+  """List products with their current inventory quantities."""
+  if limit > 500:
+    limit = 500
+  products = await db.list_products(products_session, limit=limit)
   inventory = await db.list_inventory(transactions_session)
   catalogue = _catalogue_by_id()
   items = []

@@ -30,7 +30,7 @@ export function TransactionList() {
     fetch("/api/orders")
       .then((res) => res.json())
       .then((data) => setOrders(data.orders ?? []))
-      .catch(() => {})
+      .catch((error) => console.error("Failed to fetch orders:", error))
       .finally(() => setLoading(false));
   }, []);
 

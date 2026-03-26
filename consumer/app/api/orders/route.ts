@@ -5,7 +5,8 @@ export async function GET() {
   try {
     const orders = await listConsumerOrders();
     return NextResponse.json({ orders });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list consumer orders:", error);
     return NextResponse.json({ orders: [] });
   }
 }

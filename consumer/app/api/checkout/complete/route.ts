@@ -87,8 +87,9 @@ export async function POST(req: Request) {
         paymentType: paymentInstruments[0]?.type,
         orderData,
       })
-    } catch {
-      // Don't fail the checkout if saving to consumer DB fails
+    } catch (error) {
+      // Don't fail the checkout if saving to consumer DB fails, but log it for observability.
+      console.error('Failed to save consumer order for transaction history:', error)
     }
 
     return NextResponse.json(data)
