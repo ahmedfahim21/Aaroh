@@ -255,7 +255,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
             <a
               className="transition-colors hover:text-foreground"
-              href="https://github.com/ahmedfahim21/agentic-commerce"
+              href="https://github.com/ahmedfahim21/Aaroh"
               target="_blank"
               rel="noreferrer"
             >
