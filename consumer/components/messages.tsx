@@ -93,12 +93,17 @@ function PureMessages({
             />
           ))}
 
-          {status === "submitted" &&
-            !messages.some((msg) =>
-              msg.parts?.some(
-                (part) => "state" in part && part.state === "approval-responded"
-              )
-            ) && <ThinkingMessage />}
+          {status === "submitted" && <ThinkingMessage />}
+
+          {status === "streaming" && (
+            <div
+              className="flex items-center gap-2 pl-11 text-muted-foreground text-sm"
+              data-testid="message-assistant-generating"
+            >
+              <span className="size-2 animate-pulse rounded-full bg-muted-foreground/70" />
+              <span className="animate-pulse">Generating...</span>
+            </div>
+          )}
 
           <div
             className="min-h-[24px] min-w-[24px] shrink-0"

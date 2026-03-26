@@ -329,11 +329,15 @@ function PureMultimodalInput({
           if (!input.trim() && attachments.length === 0) {
             return;
           }
-          if (status !== "ready") {
-            toast.error("Please wait for the model to finish its response!");
-          } else {
-            submitForm();
+          if (status === "streaming" || status === "submitted") {
+            stop();
+            return;
           }
+          if (status === "ready" || status === "error") {
+            submitForm();
+            return;
+          }
+          toast.error("Please wait for the model to finish its response!");
         }}
       >
         {(attachments.length > 0 || uploadQueue.length > 0) && (
@@ -404,7 +408,7 @@ function PureMultimodalInput({
             <MCPToolsIndicator />
           </PromptInputTools>
 
-          {status === "submitted" ? (
+          {status === "submitted" || status === "streaming" ? (
             <StopButton setMessages={setMessages} stop={stop} />
           ) : (
             <PromptInputSubmit

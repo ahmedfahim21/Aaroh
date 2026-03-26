@@ -222,7 +222,19 @@ export async function POST(request: Request) {
           });
         }
       },
-      onError: () => "Oops, an error occurred!",
+      onError: ({ error }) => {
+        const message =
+          error instanceof Error ? error.message : "Oops, an error occurred!";
+
+        if (
+          message.toLowerCase().includes("quota exceeded") ||
+          message.includes("RESOURCE_EXHAUSTED")
+        ) {
+          return "Model quota exceeded. Please retry shortly or switch to another model.";
+        }
+
+        return "Something went wrong while generating the response. Please try again.";
+      },
     });
 
     return createUIMessageStreamResponse({

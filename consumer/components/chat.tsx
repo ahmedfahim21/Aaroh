@@ -32,6 +32,25 @@ import { getChatHistoryPaginationKey } from "./sidebar-history";
 import { toast } from "./toast";
 import type { VisibilityType } from "./visibility-selector";
 
+function getChatErrorMessage(error: unknown): string {
+  if (error instanceof ChatSDKError) {
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    const message = error.message || "Something went wrong. Please try again.";
+    if (
+      message.toLowerCase().includes("quota exceeded") ||
+      message.includes("RESOURCE_EXHAUSTED")
+    ) {
+      return "Model quota exceeded. Please retry in a bit or switch to another model.";
+    }
+    return message;
+  }
+
+  return "Something went wrong. Please try again.";
+}
+
 export function Chat({
   id,
   initialMessages,
@@ -138,17 +157,15 @@ export function Chat({
       mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
     onError: (error) => {
-      if (error instanceof ChatSDKError) {
-        if (
-          error.message?.includes("AI Gateway requires a valid credit card")
-        ) {
-          setShowCreditCardAlert(true);
-        } else {
-          toast({
-            type: "error",
-            description: error.message,
-          });
-        }
+      const description = getChatErrorMessage(error);
+
+      if (description.includes("AI Gateway requires a valid credit card")) {
+        setShowCreditCardAlert(true);
+      } else {
+        toast({
+          type: "error",
+          description,
+        });
       }
     },
   });
