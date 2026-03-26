@@ -16,7 +16,7 @@ Provide a **product catalogue CSV** and an **EVM wallet address** to receive USD
 Catalogue CSV + EVM Wallet → UCP-Compliant Merchant Server → Visible to Any AI Agent
 ```
 
-The onboarding flow generates a fully compliant UCP server with discovery, product search, checkout sessions, and x402 payment verification. Start it from the **Merchants** tab in the web app.
+The onboarding flow generates a fully compliant UCP server with discovery, product search, checkout sessions, and x402 payment verification. Start it from the **Dashboard** in the merchant app.
 
 ### For Agents — Autonomous Shopping
 
@@ -44,16 +44,18 @@ Agent wallets are derived entirely client-side:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  chat/  (Next.js — port 4000)                                 │
-│  ┌──────────┐  ┌────────┐  ┌───────────┐                     │
-│  │   Chat   │  │ Agents │  │ Merchants │  ← Top navbar        │
-│  └──────────┘  └────────┘  └───────────┘                     │
-│       │             │             │                           │
-│  Claude + MCP   Agent sessions  UCP server mgmt              │
-└──────────────────────────────────────────────────────────────┘
-         │                   │
-         ▼                   ▼
+┌─────────────────────────────┐   ┌─────────────────────────────┐
+│  consumer/  (port 3000)     │   │  merchant/  (port 3001)     │
+│  ┌─────────┐  ┌──────────┐  │   │  ┌───────────┐  ┌───────┐  │
+│  │  Chat   │  │  Agents  │  │   │  │ Dashboard │  │Onboard│  │
+│  └─────────┘  └──────────┘  │   │  └───────────┘  └───────┘  │
+│  Privy auth · Claude + MCP  │   │  Privy auth · UCP mgmt      │
+└─────────────────────────────┘   └─────────────────────────────┘
+         │                                    │
+         └──────────── PostgreSQL ────────────┘
+                   (shared database)
+         │
+         ▼
   mcp_client.py         agent.py (port 8004)
   (stdio MCP server)    (FastAPI + Gemini)
          │                   │
@@ -66,7 +68,7 @@ Agent wallets are derived entirely client-side:
         └── x402 payment verification
                    │
                    ▼
-       USDC on Base Sepolia (EIP-3009)
+       USDC on Ethereum Sepolia (EIP-3009)
 ```
 
 ---
@@ -75,10 +77,11 @@ Agent wallets are derived entirely client-side:
 
 | Path | Description |
 |---|---|
-| [`chat/`](chat/) | Next.js web app — Chat, Agents, Merchants |
+| [`consumer/`](consumer/) | Next.js app (port 3000) — Chat, Agents, shopping UI |
+| [`merchant/`](merchant/) | Next.js app (port 3001) — Dashboard, merchant onboarding |
 | [`agent.py`](agent.py) | Autonomous shopping agent — FastAPI + EIP-8004 identity |
 | [`mcp_client.py`](mcp_client.py) | MCP server for Claude Desktop / any MCP client |
-| [`shopping/`](shopping/) | Shared shopping session library (used by both agent + MCP) |
+| [`shopping/`](shopping/) | Shared shopping session library (used by agent + MCP) |
 | [`onboard_merchant.py`](onboard_merchant.py) | CLI: CSV → UCP merchant package |
 | [`rest/python/server/`](rest/python/server/) | UCP merchant server (FastAPI + SQLite + x402) |
 | [`demo_data/`](demo_data/) | Sample product catalogues |
@@ -91,25 +94,39 @@ Agent wallets are derived entirely client-side:
 
 - Python ≥ 3.10 + [uv](https://docs.astral.sh/uv/)
 - Node.js ≥ 18 + pnpm
-- A funded USDC wallet on **Base Sepolia** (for the agent to pay)
 - PostgreSQL database (or a [Supabase](https://supabase.com) project)
+- A funded USDC wallet on **Ethereum Sepolia** (for the agent to pay)
 
-### 1. Start the Web App
+### 1. Start the Consumer App
 
 ```bash
-cd chat
+cd consumer
 cp .env.example .env.local
-# Fill in POSTGRES_URL, AUTH_SECRET, GOOGLE_GENERATIVE_AI_API_KEY, NEXT_PUBLIC_PRIVY_APP_ID
+# Fill in: POSTGRES_URL, AUTH_SECRET, GOOGLE_GENERATIVE_AI_API_KEY, NEXT_PUBLIC_PRIVY_APP_ID
+# Optional: NEXT_PUBLIC_MERCHANT_APP_URL (default: http://localhost:3001)
 
 pnpm install
-pnpm db:generate   # generate migration SQL
-# Apply migrations: pnpm db:push  OR  paste SQL into your DB console
-pnpm dev           # http://localhost:4000
+pnpm db:migrate    # apply migrations (consumer owns all migrations)
+pnpm dev           # http://localhost:3000
 ```
 
-### 2. Onboard a Merchant
+### 2. Start the Merchant App
 
-**From the web app** — go to **Merchants → Onboard**, upload a catalogue CSV and enter your EVM wallet. The server starts automatically.
+```bash
+cd merchant
+cp .env.example .env.local
+# Fill in: POSTGRES_URL, AUTH_SECRET, NEXT_PUBLIC_PRIVY_APP_ID
+# Optional: NEXT_PUBLIC_CONSUMER_APP_URL (default: http://localhost:3000)
+
+pnpm install
+pnpm dev           # http://localhost:3001
+```
+
+> **Note:** Only `consumer/` owns DB migrations. Never run `drizzle-kit generate` from `merchant/`.
+
+### 3. Onboard a Merchant
+
+**From the web app** — go to the **Merchant app → Onboard**, upload a catalogue CSV and enter your EVM wallet. The UCP server starts automatically.
 
 **From the CLI:**
 
@@ -133,7 +150,7 @@ uv run server.py \
 
 Set `MERCHANT_WALLET=0xYourWallet` in the server env to enable x402 payment verification.
 
-### 3. Start the Autonomous Agent
+### 4. Start the Autonomous Agent
 
 ```bash
 cp .env.example .env   # root level
@@ -142,17 +159,17 @@ cp .env.example .env   # root level
 uv run agent.py        # http://localhost:8004
 ```
 
-On first run, the agent registers an EIP-8004 identity on Base Sepolia (NFT mint) and caches the `agentId` in `.erc8004_agent_id`.
+On first run, the agent registers an EIP-8004 identity on Ethereum Sepolia (NFT mint) and caches the `agentId` in `.erc8004_agent_id`.
 
-### 4. Create Agents from the Web App
+### 5. Create Agents from the Consumer App
 
 1. Go to **Agents → + New Agent**
 2. Connect your wallet via Privy (sign the master key message)
 3. An EVM address is derived client-side and shown on the card
-4. Fund the agent with USDC (Base Sepolia) using the **Fund Agent** button
+4. Fund the agent with USDC (Ethereum Sepolia) using the **Fund Agent** button
 5. Navigate to the agent, dispatch a task — the agent shops and pays autonomously
 
-### 5. Connect to Claude Desktop (MCP)
+### 6. Connect to Claude Desktop (MCP)
 
 ```json
 {
@@ -167,6 +184,23 @@ On first run, the agent registers an EIP-8004 identity on Base Sepolia (NFT mint
     }
   }
 }
+```
+
+---
+
+## Database Migrations
+
+`consumer/` is the **single source of truth** for all DB migrations. Both apps share the same PostgreSQL database.
+
+```bash
+# Generate a new migration (after editing consumer/lib/db/schema.ts)
+cd consumer && pnpm db:generate
+
+# Apply pending migrations
+cd consumer && pnpm db:migrate
+
+# Inspect the DB visually
+cd consumer && pnpm db:studio   # or: cd merchant && pnpm db:studio
 ```
 
 ---
@@ -192,9 +226,9 @@ Available to any MCP-connected AI agent (Claude Desktop, etc.):
 
 ## Payments — x402 / EIP-3009
 
-All payments use **USDC on Base Sepolia** via the [x402 protocol](https://x402.org):
+All payments use **USDC on Ethereum Sepolia** via the [x402 protocol](https://x402.org):
 
-- Token: `0x036CbD53842c5426634e7929541eC2318f3dCf7e` (USDC, Base Sepolia)
+- Token: `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` (USDC, Ethereum Sepolia)
 - Scheme: `exact` — agent signs an EIP-3009 `TransferWithAuthorization`
 - Facilitator: `https://x402.org/facilitator` (configurable via `X402_FACILITATOR_URL`)
 - Amount unit: USDC micro-units (6 decimals) — `cents × 10_000`
@@ -205,7 +239,7 @@ All payments use **USDC on Base Sepolia** via the [x402 protocol](https://x402.o
 
 The autonomous agent registers a trustless on-chain identity via [EIP-8004](https://github.com/EIPs-CodeLab/ERC-8004):
 
-| Contract | Address (Base Sepolia) |
+| Contract | Address (Ethereum Sepolia) |
 |---|---|
 | IdentityRegistry | `0x7343dFdc3E9adf2B4D2645bE7Cb12426dB5cae1e` |
 | ReputationRegistry | `0x0a41808952EBeF39Ae90E2f71B44586C47fCD9b5` |
@@ -234,16 +268,26 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 
 ## Environment Variables
 
-### Web App (`chat/.env.local`)
+### Consumer App (`consumer/.env.local`)
 
 | Variable | Description |
 |---|---|
 | `POSTGRES_URL` | PostgreSQL connection string |
-| `AUTH_SECRET` | Auth.js secret (run `openssl rand -base64 32`) |
+| `AUTH_SECRET` | Auth.js secret (`openssl rand -base64 32`) |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key (for chat) |
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (wallet connect) |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (wallet + social login) |
+| `NEXT_PUBLIC_MERCHANT_APP_URL` | Merchant app URL (default: `http://localhost:3001`) |
 | `AGENT_URL` | Autonomous agent URL (default: `http://localhost:8004`) |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob token (file uploads) |
+
+### Merchant App (`merchant/.env.local`)
+
+| Variable | Description |
+|---|---|
+| `POSTGRES_URL` | PostgreSQL connection string (same DB as consumer) |
+| `AUTH_SECRET` | Auth.js secret (same value as consumer) |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (same value as consumer) |
+| `NEXT_PUBLIC_CONSUMER_APP_URL` | Consumer app URL (default: `http://localhost:3000`) |
 
 ### Agent (`agent.py`)
 
@@ -252,17 +296,17 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 | `AGENT_PRIVATE_KEY` | 0x-prefixed hex private key for the global agent wallet |
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `GEMINI_MODEL` | Model name (default: `gemini-2.0-flash`) |
-| `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address (Base Sepolia) |
-| `IDENTITY_REGISTRY_RPC` | Base Sepolia RPC URL |
-| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
-| `MERCHANT_URL` | Default merchant URL for startup task |
+| `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address |
+| `IDENTITY_REGISTRY_RPC` | Ethereum Sepolia RPC URL |
+| `X402_NETWORK` | Chain ID string (default: `eip155:11155111`) |
+| `MERCHANT_URL` | Default merchant URL |
 
 ### UCP Merchant Server
 
 | Variable | Description |
 |---|---|
 | `MERCHANT_WALLET` | EVM wallet address to receive USDC (enables x402) |
-| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
+| `X402_NETWORK` | Chain ID string (default: `eip155:11155111`) |
 | `X402_FACILITATOR_URL` | x402 facilitator URL (default: `https://x402.org/facilitator`) |
 
 ---
