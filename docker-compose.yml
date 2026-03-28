@@ -1,0 +1,60 @@
+services:
+  # ── Merchant Next.js UI ─────────────────────────────────────────────
+  # Handles merchant onboarding + spawns per-merchant UCP servers internally
+  merchant-ui:
+    build:
+      context: ./merchant
+      dockerfile: Dockerfile
+    container_name: merchant-ui
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+      - "8000-8010:8000-8010"  # UCP server port range (spawned by Next.js)
+    env_file:
+      - ./merchant/.env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      # Mount repo siblings so route.ts can resolve them via `resolve(cwd(), '..')`
+      - ./deploy:/repo/deploy
+      - ./rest:/repo/rest
+      - ./onboard_merchant.py:/repo/onboard_merchant.py
+      - ./demo_data:/repo/demo_data
+      - ./pyproject.toml:/repo/pyproject.toml
+      - uv-cache:/root/.cache/uv
+    networks:
+      - merchant-net
+
+  # ── Nginx Reverse Proxy ────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - merchant-ui
+    networks:
+      - merchant-net
+
+  # ── Certbot (SSL certificate management) ───────────────────────────
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done'"
+
+volumes:
+  uv-cache:
+
+networks:
+  merchant-net:
+    driver: bridge
