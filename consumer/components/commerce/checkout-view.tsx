@@ -81,26 +81,36 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
 
   useEffect(() => {
     if (!merchantUrl || !checkoutId) return;
+
+    const controller = new AbortController();
     const params = new URLSearchParams({
       merchant_url: merchantUrl,
       checkout_session_id: checkoutId,
     });
-    let cancelled = false;
-    fetch(`/api/checkout/status?${params.toString()}`)
+
+    fetch(`/api/checkout/status?${params.toString()}`, {
+      signal: controller.signal,
+    })
       .then(async (r) => {
         if (!r.ok) return null;
         return r.json() as Promise<{ completed?: boolean; order_id?: string | null }>;
       })
       .then((body) => {
-        if (cancelled || !body) return;
+        if (!body) return;
         if (body.completed) {
           setPayState("success");
           setTxInfo(body.order_id ?? "confirmed");
         }
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        if (process.env.NODE_ENV !== "production") {
+          console.error("Checkout status fetch failed:", err);
+        }
+      });
+
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [merchantUrl, checkoutId]);
 
