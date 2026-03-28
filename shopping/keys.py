@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import json
 import logging
@@ -16,26 +17,58 @@ log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
+# PBKDF2 salt is fixed per app; changing it invalidates PBKDF2-derived ciphertext.
+_KDF_SALT = b"aaroh.agent-keys.v1"
+_PBKDF2_ITERATIONS = 310_000
 
-def _fernet_key() -> bytes:
+
+def _encryption_secret() -> str:
     secret = os.environ.get("AGENT_KEY_ENCRYPTION_SECRET", "").strip()
     if not secret:
         raise RuntimeError(
             "AGENT_KEY_ENCRYPTION_SECRET must be set for server-side agent key storage"
         )
-    return base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
+    return secret
+
+
+@functools.lru_cache(maxsize=1)
+def _legacy_fernet_key() -> bytes:
+    """SHA256-derived Fernet key (legacy; still used to decrypt existing rows)."""
+    return base64.urlsafe_b64encode(
+        hashlib.sha256(_encryption_secret().encode()).digest()
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _pbkdf2_fernet_key() -> bytes:
+    from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC  # noqa: PLC0415
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=_KDF_SALT,
+        iterations=_PBKDF2_ITERATIONS,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(_encryption_secret().encode()))
 
 
 def _encrypt(plaintext: str) -> str:
     from cryptography.fernet import Fernet  # noqa: PLC0415
 
-    return Fernet(_fernet_key()).encrypt(plaintext.encode()).decode()
+    return Fernet(_pbkdf2_fernet_key()).encrypt(plaintext.encode()).decode()
 
 
 def _decrypt(token: str) -> str:
-    from cryptography.fernet import Fernet  # noqa: PLC0415
+    from cryptography.fernet import Fernet, InvalidToken  # noqa: PLC0415
 
-    return Fernet(_fernet_key()).decrypt(token.encode()).decode()
+    raw = token.encode()
+    for key_bytes in (_legacy_fernet_key(), _pbkdf2_fernet_key()):
+        try:
+            return Fernet(key_bytes).decrypt(raw).decode()
+        except InvalidToken:
+            continue
+    raise InvalidToken("Could not decrypt with legacy or PBKDF2-derived key")
 
 
 def _store_path() -> Path:
@@ -63,8 +96,12 @@ def _save_store(data: dict) -> None:
     tmp.replace(path)
 
 
-def generate_agent_key(agent_id: str) -> str:
-    """Generate a new EVM key, encrypt and store under agent_id. Return checksummed address."""
+def generate_agent_key(agent_id: str) -> tuple[str, str]:
+    """Generate a new EVM key, encrypt and store under agent_id.
+
+    Returns (checksummed address, private key as 0x-prefixed hex) so callers need not
+    reload from disk.
+    """
     acct = Account.create()
     pk_hex = acct.key.hex()
     if not pk_hex.startswith("0x"):
@@ -77,7 +114,7 @@ def generate_agent_key(agent_id: str) -> str:
         _save_store(store)
 
     log.info("Stored encrypted key for agent %s → %s", agent_id, addr)
-    return addr
+    return addr, pk_hex
 
 
 def load_agent_private_key(agent_id: str) -> str | None:

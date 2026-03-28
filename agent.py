@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import threading
 import uuid
 
@@ -63,7 +64,7 @@ async def verify_agent_api_secret(request: Request, call_next):
         return await call_next(request)
     auth = request.headers.get("Authorization") or ""
     token = auth.removeprefix("Bearer ").strip()
-    if token != secret:
+    if not secrets.compare_digest(token, secret):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
     return await call_next(request)
 
@@ -215,13 +216,9 @@ def create_consumer_agent(req: CreateAgentRequest) -> dict[str, Any]:
     if load_agent_private_key(req.id):
         raise HTTPException(status_code=409, detail="Agent id already registered on this server")
     try:
-        address = generate_agent_key(req.id)
+        address, pk = generate_agent_key(req.id)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-    pk = load_agent_private_key(req.id)
-    if not pk:
-        raise HTTPException(status_code=500, detail="Key generation failed")
 
     erc8004_id = register_with_key(pk)
     return {
