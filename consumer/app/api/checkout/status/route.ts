@@ -69,6 +69,8 @@ export async function GET(req: Request) {
       status,
       completed,
       order_id: orderId || null,
+      /** Full merchant checkout JSON when completed — line items, payment tx hash, order link */
+      ...(completed ? { checkout: data } : {}),
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Checkout status proxy failed.'

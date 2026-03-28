@@ -117,13 +117,13 @@ def list_merchants_json(
     connected_base_url: str | None = None,
     extra_base_urls: list[str] | None = None,
 ) -> str:
-    return json.dumps(
-        list_merchants_dict(
-            category,
-            connected_base_url=connected_base_url,
-            extra_base_urls=extra_base_urls,
-        )
+    payload = list_merchants_dict(
+        category,
+        connected_base_url=connected_base_url,
+        extra_base_urls=extra_base_urls,
     )
+    payload["_ui"] = {"type": "merchant-list"}
+    return json.dumps(payload)
 
 
 def find_merchant_json(
@@ -166,13 +166,17 @@ def find_merchant_json(
 
     if len(matches) == 0:
         return json.dumps({
+            "_ui": {"type": "merchant-list"},
             "error": f"No merchants found matching '{query}'.",
             "all_merchants": [_slim(r) for r in all_results],
+            "merchants": [_slim(r) for r in all_results],
             "suggestion": "Call discover_merchant(url) with a URL above, or try list_merchants().",
         })
 
     return json.dumps({
+        "_ui": {"type": "merchant-list"},
         "error": f"Multiple merchants match '{query}'.",
         "matches": [_slim(r) for r in matches],
+        "merchants": [_slim(r) for r in matches],
         "suggestion": "Call discover_merchant(url) with the URL of your preferred merchant.",
     })

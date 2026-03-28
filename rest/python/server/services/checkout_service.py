@@ -653,6 +653,25 @@ class CheckoutService:
     # Process Payment
     await self._process_payment(payment)
 
+    # Persist payment instruments on the checkout payload returned to clients.
+    # x402 stores the on-chain tx hash on the EVM instrument token; without this,
+    # model_dump() would only reflect the pre-complete session (often empty instruments).
+    existing_handlers: list[Any] = []
+    if checkout.payment is not None and checkout.payment.handlers:
+      existing_handlers = list(checkout.payment.handlers)
+    checkout.payment = PaymentResponse(
+      handlers=existing_handlers,
+      selected_instrument_id=payment.selected_instrument_id,
+      instruments=payment.instruments,
+    )
+    _pi = payment.instruments
+    _n = len(_pi) if _pi is not None else 0
+    logger.info(
+      "complete_checkout: attached %s payment instrument(s) to checkout response (selected=%s)",
+      _n,
+      payment.selected_instrument_id,
+    )
+
     # Validate Fulfillment (Required for completion in this implementation)
     fulfillment_valid = False
     if checkout.fulfillment and checkout.fulfillment.root.methods:

@@ -1,5 +1,20 @@
 import { NextResponse } from 'next/server'
 import { saveConsumerOrder } from '@/lib/db/queries-orders'
+import { txExplorerUrl } from '@/lib/checkout-receipt'
+
+/** x402 HTTP transport: PAYMENT-RESPONSE is base64 JSON SettlementResponse; `transaction` is the tx hash. */
+function txHashFromPaymentResponseHeader(headerValue: string | null): string | undefined {
+  if (!headerValue?.trim()) return undefined
+  try {
+    const decoded = Buffer.from(headerValue.trim(), 'base64').toString('utf8')
+    const parsed = JSON.parse(decoded) as { transaction?: unknown }
+    const tx = parsed.transaction
+    if (typeof tx !== 'string' || !tx.trim()) return undefined
+    return tx.trim()
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Proxy endpoint: forwards a signed x402 payment to the merchant's UCP server.
@@ -60,9 +75,21 @@ export async function POST(req: Request) {
       )
     }
 
+    const paymentResponseHeader =
+      merchantRes.headers.get('payment-response') ?? merchantRes.headers.get('PAYMENT-RESPONSE')
+    const orderData = data as Record<string, unknown>
+    const txFromHeader = txHashFromPaymentResponseHeader(paymentResponseHeader)
+    const txFromBody =
+      typeof orderData.x402_transaction === 'string' ? orderData.x402_transaction.trim() : undefined
+    const tx_hash = txFromHeader ?? txFromBody
+    if (tx_hash) {
+      orderData.tx_hash = tx_hash
+      const explorer = txExplorerUrl(tx_hash)
+      if (explorer) orderData.tx_url = explorer
+    }
+
     // Save the order to consumer DB for transaction history
     try {
-      const orderData = data as Record<string, unknown>
       const orderId = (orderData.id as string) ?? checkout_session_id
       const lineItems = (orderData.line_items as Array<{
         item?: { title?: string; price?: number }

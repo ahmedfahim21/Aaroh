@@ -3,24 +3,32 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-const INR = new Intl.NumberFormat("en-IN", {
+/** Merchant `price` is USD cents (e.g. 149 → $1.49). */
+const USD = new Intl.NumberFormat("en-US", {
   style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-  minimumFractionDigits: 0,
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
 });
 
 export type ProductData = {
   id: string;
   title: string;
+  /** USD cents */
   price?: number;
-  price_rs?: number;
   category?: string | null;
   origin_state?: string | null;
   artisan_name?: string | null;
   image_url?: string | null;
   description?: string | null;
 };
+
+function formatUsdFromCents(cents: number | undefined): string {
+  if (cents == null) {
+    return "—";
+  }
+  return USD.format(cents / 100);
+}
 
 type ProductCardProps = {
   data: ProductData;
@@ -30,7 +38,6 @@ type ProductCardProps = {
 };
 
 export function ProductCard({ data, compact = false, className }: ProductCardProps) {
-  const priceRs = data.price_rs ?? (data.price != null ? data.price / 100 : 0);
   const description = data.description?.trim();
   const showMeta = data.artisan_name || data.origin_state;
 
@@ -87,7 +94,7 @@ export function ProductCard({ data, compact = false, className }: ProductCardPro
         </CardHeader>
         <CardContent className="mt-auto space-y-2 p-4 pt-2">
           <p className="font-semibold text-foreground">
-            {INR.format(priceRs)}
+            {formatUsdFromCents(data.price)}
           </p>
           {description && (
             <p

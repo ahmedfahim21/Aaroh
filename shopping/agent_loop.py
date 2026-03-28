@@ -127,6 +127,9 @@ def run_shopping_agent(
         gtypes.Content(role="user", parts=[gtypes.Part(text=task)])
     ]
 
+    # Last successful submit_payment payload (includes order, tx_url, cart_summary, etc.)
+    completed_purchase: dict[str, Any] | None = None
+
     for _ in range(20):
         _emit({"type": "thinking"})
 
@@ -171,7 +174,7 @@ def run_shopping_agent(
                 p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
             )
             _emit({"type": "text", "text": text})
-            return {"success": True, "result": text, "order": None}
+            return {"success": True, "result": text, "order": completed_purchase}
 
         response_parts: list[gtypes.Part] = []
         last_order = None
@@ -190,8 +193,9 @@ def run_shopping_agent(
             if name == "submit_payment":
                 try:
                     data = json.loads(result_str)
-                    if data.get("success"):
+                    if data.get("success") and isinstance(data, dict):
                         last_order = data.get("order")
+                        completed_purchase = data
                 except Exception:
                     pass
 
@@ -200,4 +204,4 @@ def run_shopping_agent(
         if last_order is not None:
             continue  # let Gemini produce a final summary
 
-    return {"success": False, "result": "Agent loop exceeded max iterations.", "order": None}
+    return {"success": False, "result": "Agent loop exceeded max iterations.", "order": completed_purchase}
