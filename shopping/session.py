@@ -38,10 +38,14 @@ class ShoppingSession:
         agent_id: int | None = None,
         emit: EmitFn | None = None,
         agent_private_key: str | None = None,
+        extra_discovery_urls: list[str] | None = None,
     ):
         self.merchant_base_url: str | None = (
             (default_merchant_url or os.environ.get("MERCHANT_URL", "")).rstrip("/") or None
         )
+        self.extra_discovery_urls: list[str] = [
+            str(u).strip().rstrip("/") for u in (extra_discovery_urls or []) if str(u or "").strip()
+        ]
         self.merchant_profile: dict[str, Any] | None = None
         self.cart: list[dict[str, Any]] = []
         self.checkout_session_id: str | None = None

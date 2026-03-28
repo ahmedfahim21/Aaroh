@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import useSWR from "swr";
 import { cn } from "@/lib/utils";
+import { CopyAgentAddressButton } from "./copy-agent-address-button";
 import { TaskInteraction } from "./task-interaction";
 import type { Agent, AgentSession } from "@/lib/db/schema";
 
@@ -67,20 +68,16 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
       <aside className="w-64 shrink-0 border-r flex flex-col overflow-hidden">
         <div className="px-4 py-3 border-b shrink-0">
           <h2 className="font-medium truncate">{agent.name}</h2>
-          <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
-            {agent.walletAddress}
-          </p>
+          <div className="mt-0.5 flex items-start gap-0.5">
+            <p className="min-w-0 flex-1 break-all text-xs font-mono text-muted-foreground leading-snug">
+              {agent.walletAddress}
+            </p>
+            <CopyAgentAddressButton address={agent.walletAddress} className="mt-0.5" />
+          </div>
         </div>
 
         <div className="px-3 py-3 border-b shrink-0 flex flex-col gap-2">
-          <input
-            type="url"
-            value={merchantUrl}
-            onChange={(e) => setMerchantUrl(e.target.value)}
-            placeholder="Merchant URL (e.g. http://localhost:8000)"
-            disabled={dispatching}
-            className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-          />
+
           <textarea
             value={task}
             onChange={(e) => setTask(e.target.value)}
@@ -91,6 +88,14 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleDispatch();
             }}
+          />
+          <input
+            type="url"
+            value={merchantUrl}
+            onChange={(e) => setMerchantUrl(e.target.value)}
+            placeholder="Merchant URL (optional)"
+            disabled={dispatching}
+            className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
           />
           {dispatchError && <p className="text-xs text-destructive">{dispatchError}</p>}
           <button

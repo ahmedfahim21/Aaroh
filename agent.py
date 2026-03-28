@@ -19,7 +19,7 @@ Environment variables:
     AGENT_KEY_ENCRYPTION_SECRET – Required for POST /agents (Fernet-derived key storage)
     AGENT_KEYS_STORE            – Path to JSON store (default .agent_keys.json)
     AGENT_PRIVATE_KEY           – Fallback demo key when consumer_agent_id not used
-    GEMINI_API_KEY, GEMINI_MODEL, MERCHANT_URL, X402_NETWORK, ERC8004_*, etc.
+    GOOGLE_GENERATIVE_AI_API_KEY, GEMINI_MODEL, MERCHANT_URL, …
 """
 
 import asyncio

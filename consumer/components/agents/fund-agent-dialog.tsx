@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useWallets } from "@privy-io/react-auth";
-import { encodeFunctionData, erc20Abi, parseUnits } from "viem";
+import { encodeFunctionData, erc20Abi, parseUnits, getAddress, isAddress } from "viem";
 import {
   Dialog,
   DialogContent,
@@ -13,8 +13,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  BASE_SEPOLIA_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID_HEX,
+  USDC_BASE_SEPOLIA_ADDRESS,
+} from "@/lib/constants";
 
-const USDC = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" as const;
+type EthereumProvider = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
 
 interface FundAgentDialogProps {
   open: boolean;
@@ -37,7 +44,7 @@ export function FundAgentDialog({
   const [error, setError] = useState("");
 
   const handleFund = async () => {
-    const wallet = wallets[0];
+    const wallet = wallets.find((w) => isAddress(w.address));
     if (!wallet) {
       setError("Connect a wallet first.");
       setStatus("error");
@@ -49,22 +56,49 @@ export function FundAgentDialog({
       setStatus("error");
       return;
     }
+    if (!isAddress(agentAddress)) {
+      setError("Invalid agent address.");
+      setStatus("error");
+      return;
+    }
 
     setStatus("loading");
     setError("");
 
     try {
+      const provider = (await wallet.getEthereumProvider()) as EthereumProvider;
+
+      // Match checkout: ensure wallet is on Base Sepolia before USDC transfer
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: BASE_SEPOLIA_CHAIN_ID_HEX }],
+        });
+      } catch (chainError) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Fund agent chain switch failed", {
+            error: chainError,
+            targetChainId: BASE_SEPOLIA_CHAIN_ID,
+          });
+        }
+      }
+
+      const toAddress = getAddress(agentAddress);
       const data = encodeFunctionData({
         abi: erc20Abi,
         functionName: "transfer",
-        args: [agentAddress, parseUnits(amount, 6)],
+        args: [toAddress, parseUnits(amount, 6)],
       });
 
-      // @privy-io/react-auth wallet.sendTransaction
-      const provider = await wallet.getEthereumProvider();
       await provider.request({
         method: "eth_sendTransaction",
-        params: [{ to: USDC, data, from: wallet.address }],
+        params: [
+          {
+            to: USDC_BASE_SEPOLIA_ADDRESS,
+            data,
+            from: getAddress(wallet.address),
+          },
+        ],
       });
 
       setStatus("success");

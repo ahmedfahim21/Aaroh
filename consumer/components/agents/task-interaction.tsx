@@ -14,8 +14,14 @@ interface TaskInteractionProps {
 // Human-readable tool labels
 function toolLabel(tool: string, args: Record<string, unknown>): string {
   switch (tool) {
+    case "list_merchants":
+      return args.category
+        ? `Listing merchants (filter: ${args.category})`
+        : "Listing merchants";
+    case "find_merchant":
+      return args.query ? `Finding merchant — "${args.query}"` : "Finding merchant";
     case "discover_merchant":
-      return `Discovering merchant${args.url ? ` at ${args.url}` : ""}`;
+      return `Discovering merchant${args.merchant_url ? ` at ${args.merchant_url}` : ""}`;
     case "browse_categories":
       return "Browsing categories";
     case "search_products":

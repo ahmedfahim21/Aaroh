@@ -59,15 +59,17 @@ def run_shopping_agent(
                 "Create the agent via POST /agents or set AGENT_PRIVATE_KEY for demo mode."
             )
 
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
+        raise RuntimeError("GOOGLE_GENERATIVE_AI_API_KEY environment variable is not set")
     client = genai.Client(api_key=api_key)
+    pinned_urls = [str(m["url"]).strip() for m in (available_merchants or []) if m.get("url")]
     session = ShoppingSession(
         default_merchant_url=None,
         agent_id=agent_id,
         emit=emit,
         agent_private_key=resolved_key,
+        extra_discovery_urls=pinned_urls or None,
     )
 
     if resolved_key:
@@ -87,16 +89,27 @@ def run_shopping_agent(
     merchants_desc = ""
     if available_merchants:
         lines = "\n".join(f"  - {m['name']}: {m['url']}" for m in available_merchants)
-        merchants_desc = f"\n\nAvailable merchants (call discover_merchant with the URL first):\n{lines}"
+        merchants_desc = (
+            f"\n\nPreferred merchants (call discover_merchant with the correct URL first):\n{lines}"
+        )
+    else:
+        merchants_desc = (
+            "\n\nNo merchant URL was pinned in the UI. Do NOT ask the user for a URL. "
+            "Start with list_merchants() to discover configured stores, or find_merchant(query) "
+            "when the user names a store or category. Then call discover_merchant(url) before browsing. "
+            "If the user message contains an explicit http(s) base URL, you may discover_merchant "
+            "with that URL directly. If list_merchants reports missing configuration, say operators "
+            "must set MERCHANT_URL and/or MERCHANT_URLS on the agent—do not ask the human for URLs."
+        )
 
     base_system = (
         f"You are an autonomous shopping agent. Ethereum address: {display_addr} ({id_desc}). "
         "You hold USDC on Base Sepolia and pay for purchases autonomously via x402. "
-        "Complete the shopping task efficiently: discover the right merchant, find the product, "
-        "add it to cart, then call checkout() to obtain x402 payment requirements from the merchant, "
-        "then call submit_payment(checkout_session_id) with the id from that response to sign and pay. "
-        "Do not ask for confirmation — just execute. "
-        f"After a successful submit_payment, briefly summarise the purchase.{merchants_desc}"
+        "Never ask the human for merchant URLs, missing info, or confirmation—only use tools and complete the task. "
+        "Typical flow: list_merchants or find_merchant → discover_merchant → search/add_to_cart → "
+        "checkout() → submit_payment. "
+        "After a successful submit_payment, briefly summarise the purchase."
+        f"{merchants_desc}"
     )
     system = f"{base_system}\n\n{extra}" if extra else base_system
 

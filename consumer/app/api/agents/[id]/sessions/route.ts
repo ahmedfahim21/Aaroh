@@ -1,6 +1,7 @@
 import { auth } from "@/app/(auth)/auth";
 import { agentBackendHeaders, AGENT_URL } from "@/lib/agent-backend";
 import { createSession, getAgentById, listSessionsByAgentId } from "@/lib/db/queries-agents";
+import { merchantSeedsFromConsumerEnv } from "@/lib/merchant-env";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -35,10 +36,15 @@ export async function POST(
   }
 
   const body = await req.json();
-  const { task, availableMerchants } = body;
+  const { task, availableMerchants: bodyMerchants } = body;
 
   if (!task) {
     return NextResponse.json({ error: "task is required" }, { status: 400 });
+  }
+
+  let availableMerchants = Array.isArray(bodyMerchants) ? bodyMerchants : [];
+  if (availableMerchants.length === 0) {
+    availableMerchants = merchantSeedsFromConsumerEnv();
   }
 
   let erc8004AgentId: number | null = null;

@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPublicClient, http, erc20Abi } from "viem";
 import { baseSepolia } from "viem/chains";
-
-const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCf7e" as const;
+import { USDC_BASE_SEPOLIA_ADDRESS } from "@/lib/constants";
 
 const publicClient = createPublicClient({
   chain: baseSepolia,
@@ -20,7 +19,7 @@ export function useAgentBalance(agentAddress: `0x${string}` | null | undefined) 
     setLoading(true);
     try {
       const raw = await publicClient.readContract({
-        address: USDC,
+        address: USDC_BASE_SEPOLIA_ADDRESS,
         abi: erc20Abi,
         functionName: "balanceOf",
         args: [agentAddress],

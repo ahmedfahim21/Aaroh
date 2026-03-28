@@ -147,10 +147,10 @@ Set `MERCHANT_WALLET=0xYourWallet` in the server env to enable x402 payment veri
 ### 4. Start the Autonomous Agent
 
 ```bash
-cp .env.example .env   # root level
+cp .env.example .env   # repo root — Python loads this; not consumer/.env.local
 # Required for consumer-created agents: AGENT_KEY_ENCRYPTION_SECRET
 # Recommended: AGENT_API_SECRET (same value in consumer as AGENT_API_SECRET for Bearer auth)
-# Also: GEMINI_API_KEY; optional AGENT_PRIVATE_KEY for demo / AGENT_TASK without consumer_agent_id
+# Also: GOOGLE_GENERATIVE_AI_API_KEY; optional AGENT_PRIVATE_KEY for demo / AGENT_TASK without consumer_agent_id
 # Optional: ERC8004_IDENTITY_REGISTRY, IDENTITY_REGISTRY_RPC
 
 uv run agent.py        # http://localhost:8004
@@ -303,7 +303,7 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 | `AGENT_KEY_ENCRYPTION_SECRET` | Secret for encrypting per-agent keys (required for `POST /agents`) |
 | `AGENT_KEYS_STORE` | Path to JSON key store (default: `.agent_keys.json` in cwd) |
 | `AGENT_PRIVATE_KEY` | Optional global fallback key when `consumer_agent_id` is not used |
-| `GEMINI_API_KEY` | Google Gemini API key |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini API key (same as consumer; `GEMINI_API_KEY` still works) |
 | `GEMINI_MODEL` | Model name (default: `gemini-2.5-flash`) |
 | `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address |
 | `IDENTITY_REGISTRY_RPC` | Base Sepolia RPC URL |

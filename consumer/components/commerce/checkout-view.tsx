@@ -5,10 +5,11 @@ import { useWallets } from "@privy-io/react-auth";
 import { createWalletClient, custom, getAddress, isAddress } from "viem";
 import { baseSepolia } from "viem/chains";
 import { cn } from "@/lib/utils";
-
-// USDC on Base Sepolia
-const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCf7e";
-const BASE_SEPOLIA_CHAIN_ID = 84532;
+import {
+  BASE_SEPOLIA_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID_HEX,
+  USDC_BASE_SEPOLIA_ADDRESS,
+} from "@/lib/constants";
 
 export type CheckoutViewData = {
   _ui?: { type: string };
@@ -185,7 +186,7 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
       try {
         await provider.request({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x14a34" }], // 84532
+          params: [{ chainId: BASE_SEPOLIA_CHAIN_ID_HEX }],
         });
       } catch (chainError) {
         // Ignore and continue; typed data includes explicit chainId anyway.
@@ -223,7 +224,7 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
           name: "USDC",
           version: "2",
           chainId: BASE_SEPOLIA_CHAIN_ID,
-          verifyingContract: getAddress(USDC_ADDRESS),
+          verifyingContract: getAddress(USDC_BASE_SEPOLIA_ADDRESS),
         },
         types: {
           TransferWithAuthorization: [
@@ -266,7 +267,7 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
           network: "eip155:84532",
           payTo: toAddress,
           amount: amountMicroUsdc.toString(),
-          asset: USDC_ADDRESS,
+          asset: USDC_BASE_SEPOLIA_ADDRESS,
           maxTimeoutSeconds: 300,
           extra: {
             name: "USDC",
@@ -328,7 +329,7 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
             orderCents,
             fromAddress: debugFromAddress,
             chainId: BASE_SEPOLIA_CHAIN_ID,
-            usdcContract: USDC_ADDRESS,
+            usdcContract: USDC_BASE_SEPOLIA_ADDRESS,
           },
         });
       }
