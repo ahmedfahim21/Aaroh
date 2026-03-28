@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWallets } from "@privy-io/react-auth";
 import { createWalletClient, custom, getAddress, isAddress } from "viem";
 import { baseSepolia } from "viem/chains";
@@ -78,6 +78,31 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
   const hasValidMerchantWallet = isAddress(merchantWallet);
   const merchantUrl = data.merchant_url ?? "";
   const checkoutId = data.checkout_session_id ?? "";
+
+  useEffect(() => {
+    if (!merchantUrl || !checkoutId) return;
+    const params = new URLSearchParams({
+      merchant_url: merchantUrl,
+      checkout_session_id: checkoutId,
+    });
+    let cancelled = false;
+    fetch(`/api/checkout/status?${params.toString()}`)
+      .then(async (r) => {
+        if (!r.ok) return null;
+        return r.json() as Promise<{ completed?: boolean; order_id?: string | null }>;
+      })
+      .then((body) => {
+        if (cancelled || !body) return;
+        if (body.completed) {
+          setPayState("success");
+          setTxInfo(body.order_id ?? "confirmed");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [merchantUrl, checkoutId]);
 
   const canPay = Boolean(
     wallets.length > 0 &&
