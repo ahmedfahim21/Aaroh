@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 import {
-  extractTxHashFromCheckout,
-  lineItemsFromCheckout,
-  totalCentsFromCheckout,
-  txExplorerUrl,
+  lineItemsFromPurchase,
+  totalCentsFromPurchase,
+  txHashFromPurchase,
+  txUrlFromPurchase,
 } from "@/lib/checkout-receipt";
 import { useTaskSSE, type AgentEvent } from "@/hooks/use-task-sse";
 import { cn } from "@/lib/utils";
@@ -108,46 +108,10 @@ function formatUsdFromCents(cents: number): string {
 
 /** submit_payment success envelope from the agent (includes nested merchant checkout). */
 function TaskPurchaseSummary({ purchase }: { purchase: Record<string, unknown> }) {
-  const merchantCheckout =
-    purchase.order && typeof purchase.order === "object"
-      ? (purchase.order as Record<string, unknown>)
-      : null;
-
-  const txHash =
-    extractTxHashFromCheckout(purchase) ??
-    (merchantCheckout ? extractTxHashFromCheckout(merchantCheckout) : undefined);
-  const txUrl =
-    (typeof purchase.tx_url === "string" && purchase.tx_url.trim()) || txExplorerUrl(txHash);
-
-  const cartSummary = purchase.cart_summary;
-  const cartItems =
-    cartSummary &&
-    typeof cartSummary === "object" &&
-    Array.isArray((cartSummary as { items?: unknown }).items)
-      ? ((cartSummary as { items: Array<{ title?: string; quantity?: number; price_cents?: number; line_total_cents?: number }> }).items).map(
-          (it) => ({
-            title: it.title ?? "Item",
-            quantity: it.quantity ?? 1,
-            lineTotalCents:
-              it.line_total_cents ??
-              (it.price_cents != null ? it.price_cents * (it.quantity ?? 1) : 0),
-          })
-        )
-      : merchantCheckout
-        ? lineItemsFromCheckout(merchantCheckout).map((it) => ({
-            title: it.title,
-            quantity: it.quantity,
-            lineTotalCents: it.lineTotalCents,
-          }))
-        : [];
-
-  const totalCents =
-    (cartSummary &&
-    typeof cartSummary === "object" &&
-    typeof (cartSummary as { total_cents?: unknown }).total_cents === "number"
-      ? (cartSummary as { total_cents: number }).total_cents
-      : undefined) ??
-    (merchantCheckout ? totalCentsFromCheckout(merchantCheckout) : undefined);
+  const txHash = txHashFromPurchase(purchase);
+  const txUrl = txUrlFromPurchase(purchase);
+  const cartItems = lineItemsFromPurchase(purchase);
+  const totalCents = totalCentsFromPurchase(purchase);
 
   const paidUsdc =
     typeof purchase.paid_usdc === "number" ? purchase.paid_usdc : undefined;

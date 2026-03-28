@@ -113,6 +113,100 @@ export function totalCentsFromCheckout(data: unknown): number | undefined {
   return typeof total?.amount === "number" ? total.amount : undefined;
 }
 
+/** Normalized row for purchase / order-confirmation UIs (cart_summary or merchant checkout). */
+export type PurchaseLineItem = {
+  title: string;
+  quantity: number;
+  lineTotalCents: number;
+};
+
+type CartSummaryPayload = {
+  items?: Array<{
+    title?: string;
+    quantity?: number;
+    price_cents?: number;
+    line_total_cents?: number;
+  }>;
+  total_cents?: number;
+};
+
+function merchantOrderFromPurchase(
+  purchase: Record<string, unknown>
+): Record<string, unknown> | null {
+  const order = purchase.order;
+  return order != null && typeof order === "object" ? (order as Record<string, unknown>) : null;
+}
+
+/** Transaction hash from agent/order payload (top-level or nested merchant checkout). */
+export function txHashFromPurchase(
+  purchase: Record<string, unknown> | null | undefined
+): string | undefined {
+  if (!purchase) return undefined;
+  const nested = merchantOrderFromPurchase(purchase);
+  return (
+    extractTxHashFromCheckout(purchase) ??
+    (nested ? extractTxHashFromCheckout(nested) : undefined)
+  );
+}
+
+/** Prefer explicit `tx_url`, else build explorer link from resolved hash. */
+export function txUrlFromPurchase(
+  purchase: Record<string, unknown> | null | undefined
+): string | undefined {
+  if (!purchase) return undefined;
+  const direct = typeof purchase.tx_url === "string" ? purchase.tx_url.trim() : "";
+  if (direct) return direct;
+  return txExplorerUrl(txHashFromPurchase(purchase));
+}
+
+/**
+ * Line items for display: `cart_summary.items` when non-empty, else merchant `order` checkout line_items.
+ */
+export function lineItemsFromPurchase(
+  purchase: Record<string, unknown> | null | undefined
+): PurchaseLineItem[] {
+  if (!purchase) return [];
+
+  const cartSummary = purchase.cart_summary;
+  if (cartSummary != null && typeof cartSummary === "object") {
+    const items = (cartSummary as CartSummaryPayload).items;
+    if (Array.isArray(items)) {
+      return items.map((it) => ({
+        title: it.title ?? "Item",
+        quantity: typeof it.quantity === "number" ? it.quantity : 1,
+        lineTotalCents:
+          it.line_total_cents ??
+          (it.price_cents != null
+            ? it.price_cents * (typeof it.quantity === "number" ? it.quantity : 1)
+            : 0),
+      }));
+    }
+  }
+
+  const merchantCheckout = merchantOrderFromPurchase(purchase);
+  if (merchantCheckout) {
+    return lineItemsFromCheckout(merchantCheckout).map((it) => ({
+      title: it.title,
+      quantity: it.quantity,
+      lineTotalCents: it.lineTotalCents,
+    }));
+  }
+  return [];
+}
+
+export function totalCentsFromPurchase(
+  purchase: Record<string, unknown> | null | undefined
+): number | undefined {
+  if (!purchase) return undefined;
+  const cartSummary = purchase.cart_summary;
+  if (cartSummary != null && typeof cartSummary === "object") {
+    const tc = (cartSummary as CartSummaryPayload).total_cents;
+    if (typeof tc === "number") return tc;
+  }
+  const merchantCheckout = merchantOrderFromPurchase(purchase);
+  return merchantCheckout ? totalCentsFromCheckout(merchantCheckout) : undefined;
+}
+
 /** @deprecated Merchant /orders URLs are not shown in UI; kept for rare fallbacks. */
 export function orderPermalinkFromCheckout(data: unknown): string | undefined {
   if (!data || typeof data !== "object") return undefined;

@@ -3,11 +3,11 @@
 import { CheckCircleIcon, ExternalLinkIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  extractTxHashFromCheckout,
-  lineItemsFromCheckout,
+  lineItemsFromPurchase,
   orderIdFromCheckout,
-  totalCentsFromCheckout,
-  txExplorerUrl,
+  totalCentsFromPurchase,
+  txHashFromPurchase,
+  txUrlFromPurchase,
 } from "@/lib/checkout-receipt";
 
 export type CartSummaryItem = {
@@ -51,30 +51,11 @@ export function OrderConfirmation({ data, className }: OrderConfirmationProps) {
   const orderId =
     data.order_id ?? (nestedCheckout ? orderIdFromCheckout(nestedCheckout) : undefined);
 
-  const txHash =
-    extractTxHashFromCheckout(data) ??
-    (nestedCheckout ? extractTxHashFromCheckout(nestedCheckout) : undefined);
-  const txUrl = data.tx_url ?? txExplorerUrl(txHash);
-
-  const cartItems = data.cart_summary?.items?.length
-    ? data.cart_summary.items.map((it) => ({
-        title: it.title,
-        quantity: it.quantity,
-        lineTotalCents:
-          it.line_total_cents ??
-          (it.price_cents != null ? it.price_cents * it.quantity : 0),
-      }))
-    : nestedCheckout
-      ? lineItemsFromCheckout(nestedCheckout).map((it) => ({
-          title: it.title,
-          quantity: it.quantity,
-          lineTotalCents: it.lineTotalCents,
-        }))
-      : [];
-
-  const totalCents =
-    data.cart_summary?.total_cents ??
-    (nestedCheckout ? totalCentsFromCheckout(nestedCheckout) : undefined);
+  const payload = data as Record<string, unknown>;
+  const txHash = txHashFromPurchase(payload);
+  const txUrl = txUrlFromPurchase(payload);
+  const cartItems = lineItemsFromPurchase(payload);
+  const totalCents = totalCentsFromPurchase(payload);
 
   const message = data.message ?? "Thank you for your payment.";
 
