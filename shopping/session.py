@@ -249,6 +249,40 @@ class ShoppingSession:
     def remove_from_cart(self, product_id: str) -> str:
         return self.update_cart(product_id, 0)
 
+    @staticmethod
+    def get_checkout_status(merchant_url: str, checkout_session_id: str) -> str:
+        """Query a merchant for the current status of a checkout session.
+
+        Used by MCP clients and mirrored by the consumer status proxy for UI hydration.
+        """
+        base = merchant_url.rstrip("/")
+        url = f"{base}/checkout-sessions/{checkout_session_id}"
+        try:
+            with httpx.Client(timeout=10.0) as c:
+                headers = {
+                    "UCP-Agent": 'profile="browser"',
+                    "Request-Signature": "browser",
+                    "Idempotency-Key": str(uuid.uuid4()),
+                    "Request-Id": str(uuid.uuid4()),
+                    "Content-Type": "application/json",
+                }
+                r = c.get(url, headers=headers)
+                r.raise_for_status()
+                data = r.json()
+        except httpx.HTTPError as e:
+            return json.dumps({"error": f"Failed to get checkout status: {e}"})
+
+        status = data.get("status", "unknown")
+        order = data.get("order") or {}
+        order_id = order.get("id") if isinstance(order, dict) else None
+        completed_statuses = frozenset({"completed", "complete_in_progress"})
+        return json.dumps({
+            "checkout_session_id": checkout_session_id,
+            "status": status,
+            "completed": status in completed_statuses,
+            "order_id": order_id,
+        })
+
     def checkout(self) -> str:
         """Create a checkout session. Returns session_id, order_total, wallet_address.
 

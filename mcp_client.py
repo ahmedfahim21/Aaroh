@@ -231,6 +231,12 @@ def checkout() -> str:
 
 
 @mcp.tool()
+def get_checkout_status(merchant_url: str, checkout_session_id: str) -> str:
+    """Check the current status of a checkout session on a UCP merchant (e.g. after the user paid in the browser)."""
+    return ShoppingSession.get_checkout_status(merchant_url, checkout_session_id)
+
+
+@mcp.tool()
 def complete_checkout(x_payment: str) -> str:
     """Complete the checkout by submitting a signed x402 EIP-3009 payment proof.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWallets } from "@privy-io/react-auth";
 import { createWalletClient, custom, getAddress, isAddress } from "viem";
 import { baseSepolia } from "viem/chains";
@@ -78,6 +78,41 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
   const hasValidMerchantWallet = isAddress(merchantWallet);
   const merchantUrl = data.merchant_url ?? "";
   const checkoutId = data.checkout_session_id ?? "";
+
+  useEffect(() => {
+    if (!merchantUrl || !checkoutId) return;
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      merchant_url: merchantUrl,
+      checkout_session_id: checkoutId,
+    });
+
+    fetch(`/api/checkout/status?${params.toString()}`, {
+      signal: controller.signal,
+    })
+      .then(async (r) => {
+        if (!r.ok) return null;
+        return r.json() as Promise<{ completed?: boolean; order_id?: string | null }>;
+      })
+      .then((body) => {
+        if (!body) return;
+        if (body.completed) {
+          setPayState("success");
+          setTxInfo(body.order_id ?? "confirmed");
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        if (process.env.NODE_ENV !== "production") {
+          console.error("Checkout status fetch failed:", err);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [merchantUrl, checkoutId]);
 
   const canPay = Boolean(
     wallets.length > 0 &&
