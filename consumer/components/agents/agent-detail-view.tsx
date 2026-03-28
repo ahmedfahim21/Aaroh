@@ -2,10 +2,8 @@
 
 import { useCallback, useState } from "react";
 import useSWR from "swr";
-import { useWallets } from "@privy-io/react-auth";
 import { cn } from "@/lib/utils";
 import { TaskInteraction } from "./task-interaction";
-import { getMasterSignature, deriveAgentKey } from "@/hooks/use-agent-master-key";
 import type { Agent, AgentSession } from "@/lib/db/schema";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -21,7 +19,6 @@ interface AgentDetailViewProps {
 }
 
 export function AgentDetailView({ agent }: AgentDetailViewProps) {
-  const { wallets } = useWallets();
   const [selectedSession, setSelectedSession] = useState<AgentSession | null>(null);
   const [task, setTask] = useState("");
   const [merchantUrl, setMerchantUrl] = useState("");
@@ -40,23 +37,13 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
     setDispatchError("");
 
     try {
-      // Derive per-agent private key client-side
-      let agentPrivateKey: string | undefined;
-      const wallet = wallets[0];
-      if (wallet) {
-        const sig = await getMasterSignature((opts) => wallet.sign(opts.message));
-        agentPrivateKey = deriveAgentKey(sig, agent.id);
-      }
-
       const trimmedUrl = merchantUrl.trim();
-      const availableMerchants = trimmedUrl
-        ? [{ name: trimmedUrl, url: trimmedUrl }]
-        : [];
+      const availableMerchants = trimmedUrl ? [{ name: trimmedUrl, url: trimmedUrl }] : [];
 
       const res = await fetch(`/api/agents/${agent.id}/sessions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ task: task.trim(), agentPrivateKey, availableMerchants }),
+        body: JSON.stringify({ task: task.trim(), availableMerchants }),
       });
 
       if (!res.ok) {
@@ -64,7 +51,7 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
         throw new Error(data.error ?? "Dispatch failed");
       }
 
-      const session = await res.json() as AgentSession;
+      const session = (await res.json()) as AgentSession;
       setTask("");
       await mutateSessions();
       setSelectedSession(session);
@@ -73,11 +60,10 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
     } finally {
       setDispatching(false);
     }
-  }, [task, wallets, agent.id, mutateSessions]);
+  }, [task, merchantUrl, agent.id, mutateSessions]);
 
   return (
     <div className="flex h-full w-full overflow-hidden">
-      {/* Sessions sidebar */}
       <aside className="w-64 shrink-0 border-r flex flex-col overflow-hidden">
         <div className="px-4 py-3 border-b shrink-0">
           <h2 className="font-medium truncate">{agent.name}</h2>
@@ -86,7 +72,6 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
           </p>
         </div>
 
-        {/* Dispatch form */}
         <div className="px-3 py-3 border-b shrink-0 flex flex-col gap-2">
           <input
             type="url"
@@ -107,9 +92,7 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleDispatch();
             }}
           />
-          {dispatchError && (
-            <p className="text-xs text-destructive">{dispatchError}</p>
-          )}
+          {dispatchError && <p className="text-xs text-destructive">{dispatchError}</p>}
           <button
             type="button"
             onClick={handleDispatch}
@@ -118,14 +101,8 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
           >
             {dispatching ? "Dispatching…" : "Dispatch Task"}
           </button>
-          {wallets.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              No wallet connected — agent will use server key (if any).
-            </p>
-          )}
         </div>
 
-        {/* Session list */}
         <div className="flex-1 overflow-y-auto py-2">
           {!sessions ? (
             <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
@@ -159,7 +136,6 @@ export function AgentDetailView({ agent }: AgentDetailViewProps) {
         </div>
       </aside>
 
-      {/* Main area */}
       <main className="flex-1 overflow-hidden">
         {selectedSession ? (
           <TaskInteraction

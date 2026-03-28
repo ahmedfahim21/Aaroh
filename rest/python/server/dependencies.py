@@ -22,12 +22,15 @@ including:
 - Request signature verification for webhooks.
 """
 
+import hashlib
 import re
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import config
 import db
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
@@ -47,7 +50,38 @@ class CommonHeaders(BaseModel):
   request_id: str
 
 
+def _evm_address_from_ucp_agent(ucp_agent: str) -> str | None:
+  """Parse evm:0x… address from UCP-Agent profile (e.g. profile=\"evm:0x…;erc8004=1\")."""
+  match = re.search(r"evm:(0x[a-fA-F0-9]{40})", ucp_agent)
+  return match.group(1) if match else None
+
+
+def _verify_request_body_signature(ucp_agent: str, request_signature: str, body: bytes) -> None:
+  """Verify EIP-191 signature over SHA256(request body) for autonomous agents."""
+  if request_signature in ("browser", "test", "agent-auto"):
+    return
+  if not request_signature.startswith("eip191-sha256="):
+    return
+  sig_hex = request_signature.split("=", 1)[1].strip()
+  expected_addr = _evm_address_from_ucp_agent(ucp_agent)
+  if not expected_addr:
+    raise HTTPException(
+      status_code=401,
+      detail="UCP-Agent must include evm:0x… address for eip191-sha256 signatures",
+    )
+  try:
+    message = encode_defunct(primitive=hashlib.sha256(body).digest())
+    recovered = Account.recover_message(message, signature=sig_hex)
+  except Exception as exc:
+    raise HTTPException(
+      status_code=401, detail=f"Invalid Request-Signature: {exc}"
+    ) from exc
+  if recovered.lower() != expected_addr.lower():
+    raise HTTPException(status_code=401, detail="Request-Signature does not match UCP-Agent address")
+
+
 async def common_headers(
+  request: Request,
   x_api_key: str | None = Header(None),
   ucp_agent: str = Header(...),
   request_signature: str = Header(...),
@@ -55,6 +89,8 @@ async def common_headers(
 ) -> CommonHeaders:
   """Extract and validate common headers."""
   await validate_ucp_headers(ucp_agent)
+  body = getattr(request.state, "body_bytes", b"")
+  _verify_request_body_signature(ucp_agent, request_signature, body)
   return CommonHeaders(
     x_api_key=x_api_key,
     ucp_agent=ucp_agent,
@@ -109,21 +145,12 @@ async def idempotency_header(
 async def verify_signature(
   request_signature: str = Header(..., alias="Request-Signature"),
 ) -> None:
-  """Verify the request signature.
+  """Verify the request signature (webhook / legacy paths without UCP-Agent body binding).
 
-  Note: This is a placeholder implementation that bypasses validation if the
-  signature is "test". A real implementation would verify the HMAC-SHA256
-  signature of the request body.
-
-  Args:
-    request_signature: The signature header from the platform.
-
+  Full EIP-191 body verification is applied via common_headers for checkout routes.
   """
-  # In tests, we might want to bypass validation if signature is "test"
   if request_signature == "test":
     return
-  # In sample implementation, we don't enforce signature validation
-  # as we don't share secrets with clients.
   return
 
 

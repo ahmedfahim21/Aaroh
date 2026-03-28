@@ -7,21 +7,19 @@ Endpoints:
     GET  /identity
     GET  /instructions
     POST /instructions          {"instructions": "..."}
-    POST /shop                  {"task": "...", "merchant_url": "..."}  → {task_id, status}
-    GET  /tasks                 → [{id, task, status, result}]
-    GET  /tasks/{id}            → full task record
-    GET  /tasks/{id}/events     → SSE stream
+    POST /agents                {"id": "<uuid>"}  → {id, address, erc8004_id}
+    GET  /agents/{id}/address
+    DELETE /agents/{id}
+    POST /shop                  {"task", "consumer_agent_id", ...}
+    POST /register              (legacy; prefer POST /agents)
+    GET  /tasks /tasks/{id} /tasks/{id}/events
 
 Environment variables:
-    AGENT_PRIVATE_KEY           – 0x-prefixed hex private key
-    GEMINI_API_KEY              – Google Gemini API key
-    GEMINI_MODEL                – default "gemini-2.5-flash"
-    MERCHANT_URL                – default merchant base URL
-    X402_NETWORK                – default "eip155:84532" (Base Sepolia)
-    ERC8004_IDENTITY_REGISTRY   – IdentityRegistry contract on Base Sepolia
-    IDENTITY_REGISTRY_RPC       – Base Sepolia RPC URL
-    AGENT_INSTRUCTIONS          – initial system prompt suffix
-    AGENT_TASK                  – run this task automatically on startup
+    AGENT_API_SECRET            – Bearer token required on all routes except /health (optional if unset)
+    AGENT_KEY_ENCRYPTION_SECRET – Required for POST /agents (Fernet-derived key storage)
+    AGENT_KEYS_STORE            – Path to JSON store (default .agent_keys.json)
+    AGENT_PRIVATE_KEY           – Fallback demo key when consumer_agent_id not used
+    GEMINI_API_KEY, GEMINI_MODEL, MERCHANT_URL, X402_NETWORK, ERC8004_*, etc.
 """
 
 import asyncio
@@ -32,19 +30,22 @@ import threading
 import uuid
 
 from dotenv import load_dotenv
+
 load_dotenv()
 from dataclasses import dataclass, field
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from eth_account import Account
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from shopping.agent_loop import run_shopping_agent
 from shopping.evm import USDC_BASE_SEPOLIA, agent_address
 from shopping.identity import get_or_register_eip8004_identity, register_with_key
+from shopping.keys import delete_agent_key, generate_agent_key, load_agent_private_key
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -53,6 +54,20 @@ log = logging.getLogger(__name__)
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Autonomous Shopping Agent (EIP-8004)", version="1.0.0")
+
+
+@app.middleware("http")
+async def verify_agent_api_secret(request: Request, call_next):
+    secret = os.environ.get("AGENT_API_SECRET", "").strip()
+    if not secret or request.url.path == "/health":
+        return await call_next(request)
+    auth = request.headers.get("Authorization") or ""
+    token = auth.removeprefix("Bearer ").strip()
+    if token != secret:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:4000", "http://localhost:5173"],
@@ -89,16 +104,28 @@ def _push_event(task_id: str, event: dict | None) -> None:
             asyncio.run_coroutine_threadsafe(q.put(event), _event_loop)
 
 
-def _run_task(task_id: str, task: str, available_merchants: list[dict], agent_id: int | None, agent_private_key: str | None = None, erc8004_agent_id: int | None = None) -> None:
+def _run_task(
+    task_id: str,
+    task: str,
+    available_merchants: list[dict],
+    global_erc8004_id: int | None,
+    consumer_agent_id: str | None,
+    erc8004_agent_id: int | None,
+) -> None:
     """Executed in a daemon thread; emits SSE events in real time."""
 
     def emit(event: dict) -> None:
         _push_event(task_id, event)
 
-    # Use per-agent erc8004 id if provided, otherwise fall back to global identity
-    effective_agent_id = erc8004_agent_id if erc8004_agent_id is not None else agent_id
+    effective_erc8004 = erc8004_agent_id if erc8004_agent_id is not None else global_erc8004_id
     try:
-        result = run_shopping_agent(task, available_merchants=available_merchants, agent_id=effective_agent_id, emit=emit, agent_private_key=agent_private_key)
+        result = run_shopping_agent(
+            task,
+            available_merchants=available_merchants,
+            agent_id=effective_erc8004,
+            emit=emit,
+            consumer_agent_id=consumer_agent_id,
+        )
         record = _tasks[task_id]
         record.status = "done" if result["success"] else "failed"
         record.result = result["result"]
@@ -111,7 +138,6 @@ def _run_task(task_id: str, task: str, available_merchants: list[dict], agent_id
         record.result = str(exc)
         _push_event(task_id, {"type": "done", "success": False, "result": str(exc)})
     finally:
-        # Send sentinel to close all open SSE connections for this task
         _push_event(task_id, None)
 
 
@@ -147,7 +173,9 @@ async def startup() -> None:
         _tasks[task_id] = record
         _sse_queues[task_id] = []
         threading.Thread(
-            target=_run_task, args=(task_id, auto_task, None, agent_id), daemon=True
+            target=_run_task,
+            args=(task_id, auto_task, None, agent_id, None, None),
+            daemon=True,
         ).start()
 
 
@@ -156,17 +184,21 @@ async def startup() -> None:
 
 class ShopRequest(BaseModel):
     task: str
-    available_merchants: list[dict] = []  # [{"name": str, "url": str}]
-    agent_private_key: str | None = None  # per-agent derived key (client-side, in-memory only)
-    erc8004_agent_id: int | None = None  # pre-registered EIP-8004 agent ID (if known)
+    available_merchants: list[dict] = []
+    consumer_agent_id: str | None = None  # UUID of consumer Agent row; loads key server-side
+    erc8004_agent_id: int | None = None  # EIP-8004 on-chain id from DB (optional)
 
 
 class RegisterRequest(BaseModel):
-    private_key_hex: str  # per-agent derived private key
+    private_key_hex: str  # legacy per-key registration
 
 
 class InstructionsRequest(BaseModel):
     instructions: str
+
+
+class CreateAgentRequest(BaseModel):
+    id: str  # UUID string from consumer app (must match Postgres Agent.id)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -175,6 +207,42 @@ class InstructionsRequest(BaseModel):
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {"status": "ok", "model": GEMINI_MODEL}
+
+
+@app.post("/agents")
+def create_consumer_agent(req: CreateAgentRequest) -> dict[str, Any]:
+    """Generate EVM key server-side, optionally register EIP-8004, return public address."""
+    if load_agent_private_key(req.id):
+        raise HTTPException(status_code=409, detail="Agent id already registered on this server")
+    try:
+        address = generate_agent_key(req.id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    pk = load_agent_private_key(req.id)
+    if not pk:
+        raise HTTPException(status_code=500, detail="Key generation failed")
+
+    erc8004_id = register_with_key(pk)
+    return {
+        "id": req.id,
+        "address": address,
+        "erc8004_id": erc8004_id,
+    }
+
+
+@app.get("/agents/{agent_id}/address")
+def get_consumer_agent_address(agent_id: str) -> dict[str, str]:
+    pk = load_agent_private_key(agent_id)
+    if not pk:
+        raise HTTPException(status_code=404, detail="Unknown agent id")
+    return {"address": Account.from_key(pk).address}
+
+
+@app.delete("/agents/{agent_id}")
+def delete_consumer_agent(agent_id: str) -> dict[str, bool]:
+    delete_agent_key(agent_id)
+    return {"ok": True}
 
 
 @app.get("/identity")
@@ -212,25 +280,28 @@ def set_instructions(req: InstructionsRequest) -> dict[str, Any]:
 
 @app.post("/register")
 def register(req: RegisterRequest) -> dict[str, Any]:
-    """Register (or retrieve) an EIP-8004 identity for the given private key.
-
-    Returns {"agent_id": int} on success, {"agent_id": null} if registry not configured
-    or registration fails (e.g. insufficient ETH for gas).
-    """
+    """Register (or retrieve) an EIP-8004 identity for the given private key."""
     agent_id = register_with_key(req.private_key_hex)
     return {"agent_id": agent_id}
 
 
 @app.post("/shop")
 def shop(req: ShopRequest) -> dict[str, str]:
-    agent_id = _resolve_agent_id()
+    global_erc8004 = _resolve_agent_id()
     task_id = str(uuid.uuid4())
     record = TaskRecord(id=task_id, task=req.task, merchant_url=None)
     _tasks[task_id] = record
     _sse_queues[task_id] = []
     threading.Thread(
         target=_run_task,
-        args=(task_id, req.task, req.available_merchants, agent_id, req.agent_private_key, req.erc8004_agent_id),
+        args=(
+            task_id,
+            req.task,
+            req.available_merchants,
+            global_erc8004,
+            req.consumer_agent_id,
+            req.erc8004_agent_id,
+        ),
         daemon=True,
     ).start()
     return {"task_id": task_id, "status": "running"}
@@ -273,11 +344,9 @@ async def task_events(task_id: str) -> StreamingResponse:
     history = list(r.events)  # snapshot before subscribing
 
     async def generate():
-        # Replay historical events so late-connecting clients catch up
         for evt in history:
             yield f"data: {json.dumps(evt)}\n\n"
 
-        # If task already finished, close immediately
         if r.status != "running":
             _sse_queues[task_id].remove(queue)
             return

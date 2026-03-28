@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useWallets } from "@privy-io/react-auth";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { getMasterSignature, deriveAgentAddress } from "@/hooks/use-agent-master-key";
 
 interface CreateAgentDialogProps {
   open: boolean;
@@ -22,7 +20,6 @@ interface CreateAgentDialogProps {
 }
 
 export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgentDialogProps) {
-  const { wallets } = useWallets();
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -35,27 +32,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       return;
     }
 
-    const wallet = wallets[0];
-    if (!wallet) {
-      setError("Connect a wallet first (via Privy).");
-      setStatus("error");
-      return;
-    }
-
     setStatus("loading");
     setError("");
 
     try {
-      const agentId = crypto.randomUUID();
-      const sig = await getMasterSignature((opts) =>
-        wallet.sign(opts.message)
-      );
-      const walletAddress = deriveAgentAddress(sig, agentId);
-
       const res = await fetch("/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: agentId, name: name.trim(), instructions: instructions.trim(), walletAddress }),
+        body: JSON.stringify({ name: name.trim(), instructions: instructions.trim() }),
       });
 
       if (!res.ok) {
@@ -104,15 +88,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             />
           </div>
 
-          {status === "error" && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
-
-          {wallets.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No wallet connected. Connect via the Privy button to derive an agent key.
-            </p>
-          )}
+          {status === "error" && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
         <DialogFooter>

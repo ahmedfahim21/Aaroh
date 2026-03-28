@@ -63,13 +63,30 @@ AGENT_TOOLS: list[dict] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
-        "name": "checkout_and_pay",
+        "name": "checkout",
         "description": (
-            "Create a checkout session and autonomously pay via x402 (EIP-3009 USDC on Base Sepolia). "
-            "The agent signs with its EIP-8004 identity wallet — no human needed. "
-            "Call this once the cart has all desired items."
+            "Create a checkout session and retrieve x402 payment requirements (HTTP 402) from the merchant. "
+            "Returns pay_to, amount in micro-USDC, and checkout_session_id. "
+            "You MUST then call submit_payment with that checkout_session_id to sign and pay."
         ),
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "submit_payment",
+        "description": (
+            "Sign the x402 EIP-3009 USDC authorization with the agent wallet and complete checkout. "
+            "Call only after checkout() returned payment requirements."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "checkout_session_id": {
+                    "type": "string",
+                    "description": "checkout_session_id from the prior checkout() tool result",
+                },
+            },
+            "required": ["checkout_session_id"],
+        },
     },
 ]
 
@@ -92,7 +109,9 @@ def dispatch_tool(session: ShoppingSession, tool_name: str, tool_input: dict[str
             return session.add_to_cart(tool_input["product_id"], int(tool_input.get("quantity", 1)))
         case "view_cart":
             return session.view_cart()
-        case "checkout_and_pay":
-            return session.checkout_and_pay()
+        case "checkout":
+            return session.autonomous_checkout_request_payment()
+        case "submit_payment":
+            return session.submit_payment(tool_input["checkout_session_id"])
         case _:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

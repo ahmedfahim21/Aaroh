@@ -27,17 +27,11 @@ Each agent has its own derived EVM wallet (no shared key). The agent:
 3. **Checks out**, signs an EIP-3009 USDC `TransferWithAuthorization`
 4. **Submits** the signed `X-PAYMENT` header to complete the order
 
-The full loop runs in a single `POST /shop` call — no human confirmation needed.
+The autonomous loop is started with `POST /shop` (consumer agents pass `consumer_agent_id` so keys stay on the agent server). Checkout uses a two-step **x402** flow: `checkout` (HTTP 402 payment requirements) then `submit_payment` (signed `X-PAYMENT`).
 
-### Wallet Key Derivation (No Master Key Stored)
+### Agent wallets (server-side)
 
-Agent wallets are derived entirely client-side:
-
-1. User connects via **Privy** and signs a deterministic message: `"Aaroh Agent Master Key v1"`
-2. Signature is cached in `localStorage`
-3. Per-agent private key: `keccak256(sig_bytes ++ agentId_bytes)` (viem, client-side)
-4. Only the derived **address** is stored in the DB — never the private key
-5. At dispatch time, the client re-derives the key and sends it in the request body (in-memory only on the server)
+Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypted at rest (`AGENT_KEY_ENCRYPTION_SECRET`), and registered on EIP-8004 when the registry is configured. The consumer app stores only the **public address** and `userId`; private keys are never sent to the browser or Next.js.
 
 ---
 
@@ -154,20 +148,22 @@ Set `MERCHANT_WALLET=0xYourWallet` in the server env to enable x402 payment veri
 
 ```bash
 cp .env.example .env   # root level
-# Set: AGENT_PRIVATE_KEY, GEMINI_API_KEY, ERC8004_IDENTITY_REGISTRY, IDENTITY_REGISTRY_RPC
+# Required for consumer-created agents: AGENT_KEY_ENCRYPTION_SECRET
+# Recommended: AGENT_API_SECRET (same value in consumer as AGENT_API_SECRET for Bearer auth)
+# Also: GEMINI_API_KEY; optional AGENT_PRIVATE_KEY for demo / AGENT_TASK without consumer_agent_id
+# Optional: ERC8004_IDENTITY_REGISTRY, IDENTITY_REGISTRY_RPC
 
 uv run agent.py        # http://localhost:8004
 ```
 
-On first run, the agent registers an EIP-8004 identity on Ethereum Sepolia (NFT mint) and caches the `agentId` in `.erc8004_agent_id`.
+On first request to `/identity`, the process can register a **global** EIP-8004 identity (when env is set) and cache `agentId` in `.erc8004_agent_id`. Per-agent registration happens on `POST /agents`.
 
 ### 5. Create Agents from the Consumer App
 
-1. Go to **Agents → + New Agent**
-2. Connect your wallet via Privy (sign the master key message)
-3. An EVM address is derived client-side and shown on the card
-4. Fund the agent with USDC (Ethereum Sepolia) using the **Fund Agent** button
-5. Navigate to the agent, dispatch a task — the agent shops and pays autonomously
+1. Go to **Agents → + New Agent** (you must be logged in)
+2. The consumer app calls `agent.py` `POST /agents` to mint keys server-side; the card shows the agent address
+3. Fund that address with USDC on **Base Sepolia**
+4. Dispatch a task — the agent shops and pays via x402 without sending private keys over the wire
 
 ### 6. Connect to Claude Desktop (MCP)
 
@@ -287,6 +283,7 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 | `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (wallet + social login) |
 | `NEXT_PUBLIC_MERCHANT_APP_URL` | Merchant app URL (default: `http://localhost:3001`) |
 | `AGENT_URL` | Autonomous agent URL (default: `http://localhost:8004`) |
+| `AGENT_API_SECRET` | Bearer token for `agent.py` (must match server `AGENT_API_SECRET` when set) |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob token (file uploads) |
 
 ### Merchant App (`merchant/.env.local`)
@@ -302,12 +299,15 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 
 | Variable | Description |
 |---|---|
-| `AGENT_PRIVATE_KEY` | 0x-prefixed hex private key for the global agent wallet |
+| `AGENT_API_SECRET` | If set, all routes except `GET /health` require `Authorization: Bearer …` |
+| `AGENT_KEY_ENCRYPTION_SECRET` | Secret for encrypting per-agent keys (required for `POST /agents`) |
+| `AGENT_KEYS_STORE` | Path to JSON key store (default: `.agent_keys.json` in cwd) |
+| `AGENT_PRIVATE_KEY` | Optional global fallback key when `consumer_agent_id` is not used |
 | `GEMINI_API_KEY` | Google Gemini API key |
-| `GEMINI_MODEL` | Model name (default: `gemini-2.0-flash`) |
+| `GEMINI_MODEL` | Model name (default: `gemini-2.5-flash`) |
 | `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address |
-| `IDENTITY_REGISTRY_RPC` | Ethereum Sepolia RPC URL |
-| `X402_NETWORK` | Chain ID string (default: `eip155:11155111`) |
+| `IDENTITY_REGISTRY_RPC` | Base Sepolia RPC URL |
+| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
 | `MERCHANT_URL` | Default merchant URL |
 
 ### UCP Merchant Server

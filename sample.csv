@@ -1,0 +1,8 @@
+id,title,price,image_url,description,category,origin_state,artisan_name,inventory_quantity
+pants-cotton-cargo-01,Cotton Cargo Pants (Lightweight),299,https://source.unsplash.com/featured/400x400/?cargo-pants&sig=1,Lightweight cotton cargo pants with multiple pockets for everyday wear.,pants,Delhi,Arjun Verma,60
+pants-indigo-denim-01,Indigo Denim Jeans (Straight Leg),399,https://source.unsplash.com/featured/400x400/?denim-jeans&sig=2,Classic straight-leg indigo denim with reinforced stitching.,pants,Maharashtra,Neha Sharma,45
+pants-twill-chinos-01,Breathable Twill Chinos (Everyday),249,https://source.unsplash.com/featured/400x400/?chinos&sig=3,Soft twill chinos designed for comfort and easy movement.,pants,Chandigarh,Rohit Mehta,80
+pants-stonewashed-linen-01,Stonewashed Linen Trousers,199,https://source.unsplash.com/featured/400x400/?linen-trousers&sig=4,Breezy stonewashed linen trousers for warm days; garment-softened.,pants,Kerala,Sara Jacob,35
+pants-pleated-trousers-01,Pleated Comfort Trousers,299,https://source.unsplash.com/featured/400x400/?pleated-trousers&sig=5,Relaxed pleat-front trousers with a comfortable waistband.,pants,West Bengal,Tanvi Das,100
+pants-fleece-joggers-01,Basic Fleece Jogger Pants,149,https://source.unsplash.com/featured/400x400/?fleece-joggers&sig=6,Cozy fleece joggers with an easy taper and everyday stretch feel.,pants,Karnataka,Mehul Rao,90
+pants-stretch-chinos-01,Stretch Chino Trousers (Light),349,https://source.unsplash.com/featured/400x400/?stretch-chinos&sig=7,Light stretch chinos for flexible comfort during daily activities.,pants,Gujarat,Varsha Patel,55

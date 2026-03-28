@@ -32,8 +32,10 @@ function toolLabel(tool: string, args: Record<string, unknown>): string {
       return `Updating cart — ${args.product_id}`;
     case "remove_from_cart":
       return `Removing from cart — ${args.product_id}`;
-    case "checkout_and_pay":
-      return "Checking out and paying via x402";
+    case "checkout":
+      return "Creating checkout — fetching x402 payment requirements";
+    case "submit_payment":
+      return "Signing and submitting x402 payment";
     default:
       return tool;
   }
