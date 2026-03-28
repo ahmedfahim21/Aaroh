@@ -45,6 +45,8 @@ export function OnboardForm({ privyEnabled }: Props) {
     const formData = new FormData();
     formData.set("merchant_name", merchantName.trim());
     formData.set("merchant_wallet", merchantWallet.trim());
+    formData.set("tags", tags.trim());
+    formData.set("description", description.trim());
     formData.set("catalogue", file);
 
     try {
@@ -56,32 +58,6 @@ export function OnboardForm({ privyEnabled }: Props) {
       if (!res.ok) {
         setStatus("error");
         setMessage(data.detail ?? res.statusText ?? "Onboarding failed.");
-        return;
-      }
-      // Register merchant in DB for discovery by agents
-      const slug: string =
-        data.slug ??
-        data.merchant_name?.toLowerCase().replace(/\s+/g, "-") ??
-        "unknown";
-      const registerRes = await fetch("/api/merchants", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          slug,
-          name: data.merchant_name ?? merchantName.trim(),
-          walletAddress: merchantWallet.trim(),
-          categories: data.categories ?? "",
-          tags: tags.trim(),
-          description: description.trim(),
-        }),
-      });
-
-      if (!registerRes.ok) {
-        const errorData = await registerRes.json().catch(() => ({}));
-        setStatus("error");
-        setMessage(
-          errorData.error ?? "Failed to register merchant in the database."
-        );
         return;
       }
 

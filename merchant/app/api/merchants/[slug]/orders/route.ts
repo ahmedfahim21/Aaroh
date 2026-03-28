@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-helpers";
+import { getMerchantBySlugForOwner } from "@/lib/db/queries-merchants";
 import { runningProcesses } from "@/lib/merchant-processes";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const user = await getSessionUser();
+  if (!user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { slug } = await params;
+  const owned = await getMerchantBySlugForOwner(slug, user.id);
+  if (!owned) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const proc = runningProcesses.get(slug);
   if (!proc) {
     return NextResponse.json(
