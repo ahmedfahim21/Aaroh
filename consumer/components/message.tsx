@@ -23,7 +23,10 @@ import { MessageActions } from "./message-actions";
 import { MessageEditor } from "./message-editor";
 import { MessageReasoning } from "./message-reasoning";
 import { CartView } from "./commerce/cart-view";
+import { CategoryList } from "./commerce/category-list";
 import { CheckoutView } from "./commerce/checkout-view";
+import { MerchantInfo } from "./commerce/merchant-info";
+import { MerchantList } from "./commerce/merchant-list";
 import { OrderConfirmation } from "./commerce/order-confirmation";
 import { ProductCard } from "./commerce/product-card";
 import { ProductGrid } from "./commerce/product-grid";
@@ -498,6 +501,24 @@ const PurePreviewMessage = ({
                         <OrderConfirmation data={data as Parameters<typeof OrderConfirmation>[0]["data"]} />
                       </div>
                     );
+                  case "merchant-info":
+                    return (
+                      <div className="w-full" key={dynamicPart.toolCallId}>
+                        <MerchantInfo data={data as Parameters<typeof MerchantInfo>[0]["data"]} />
+                      </div>
+                    );
+                  case "merchant-list":
+                    return (
+                      <div className="w-full" key={dynamicPart.toolCallId}>
+                        <MerchantList data={data as Parameters<typeof MerchantList>[0]["data"]} />
+                      </div>
+                    );
+                  case "category-list":
+                    return (
+                      <div className="w-full" key={dynamicPart.toolCallId}>
+                        <CategoryList data={data as Parameters<typeof CategoryList>[0]["data"]} />
+                      </div>
+                    );
                   default:
                     break;
                 }
@@ -590,6 +611,24 @@ const PurePreviewMessage = ({
                     return (
                       <div className="w-full" key={toolCallId}>
                         <OrderConfirmation data={data as Parameters<typeof OrderConfirmation>[0]["data"]} />
+                      </div>
+                    );
+                  case "merchant-info":
+                    return (
+                      <div className="w-full" key={toolCallId}>
+                        <MerchantInfo data={data as Parameters<typeof MerchantInfo>[0]["data"]} />
+                      </div>
+                    );
+                  case "merchant-list":
+                    return (
+                      <div className="w-full" key={toolCallId}>
+                        <MerchantList data={data as Parameters<typeof MerchantList>[0]["data"]} />
+                      </div>
+                    );
+                  case "category-list":
+                    return (
+                      <div className="w-full" key={toolCallId}>
+                        <CategoryList data={data as Parameters<typeof CategoryList>[0]["data"]} />
                       </div>
                     );
                   default:

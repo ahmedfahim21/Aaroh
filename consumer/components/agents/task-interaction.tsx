@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ExternalLinkIcon } from "lucide-react";
+import {
+  extractTxHashFromCheckout,
+  lineItemsFromCheckout,
+  totalCentsFromCheckout,
+  txExplorerUrl,
+} from "@/lib/checkout-receipt";
 import { useTaskSSE, type AgentEvent } from "@/hooks/use-task-sse";
 import { cn } from "@/lib/utils";
 
@@ -95,6 +102,110 @@ function ToolCallBubble({
   );
 }
 
+function formatUsdFromCents(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+/** submit_payment success envelope from the agent (includes nested merchant checkout). */
+function TaskPurchaseSummary({ purchase }: { purchase: Record<string, unknown> }) {
+  const merchantCheckout =
+    purchase.order && typeof purchase.order === "object"
+      ? (purchase.order as Record<string, unknown>)
+      : null;
+
+  const txUrl =
+    (typeof purchase.tx_url === "string" && purchase.tx_url) ||
+    txExplorerUrl(typeof purchase.tx_hash === "string" ? purchase.tx_hash : undefined) ||
+    txExplorerUrl(extractTxHashFromCheckout(purchase)) ||
+    (merchantCheckout ? txExplorerUrl(extractTxHashFromCheckout(merchantCheckout)) : undefined);
+
+  const cartSummary = purchase.cart_summary;
+  const cartItems =
+    cartSummary &&
+    typeof cartSummary === "object" &&
+    Array.isArray((cartSummary as { items?: unknown }).items)
+      ? ((cartSummary as { items: Array<{ title?: string; quantity?: number; price_cents?: number; line_total_cents?: number }> }).items).map(
+          (it) => ({
+            title: it.title ?? "Item",
+            quantity: it.quantity ?? 1,
+            lineTotalCents:
+              it.line_total_cents ??
+              (it.price_cents != null ? it.price_cents * (it.quantity ?? 1) : 0),
+          })
+        )
+      : merchantCheckout
+        ? lineItemsFromCheckout(merchantCheckout).map((it) => ({
+            title: it.title,
+            quantity: it.quantity,
+            lineTotalCents: it.lineTotalCents,
+          }))
+        : [];
+
+  const totalCents =
+    (cartSummary &&
+    typeof cartSummary === "object" &&
+    typeof (cartSummary as { total_cents?: unknown }).total_cents === "number"
+      ? (cartSummary as { total_cents: number }).total_cents
+      : undefined) ??
+    (merchantCheckout ? totalCentsFromCheckout(merchantCheckout) : undefined);
+
+  const paidUsdc =
+    typeof purchase.paid_usdc === "number" ? purchase.paid_usdc : undefined;
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-green-200/80 pt-3 text-green-900 dark:border-green-800/80 dark:text-green-100">
+      {txUrl ? (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide opacity-80">Blockchain proof</p>
+          <a
+            href={txUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex items-center gap-1 break-all font-mono text-xs underline-offset-2 hover:underline"
+          >
+            View transaction on Base Sepolia
+            <ExternalLinkIcon className="size-3.5 shrink-0" />
+          </a>
+        </div>
+      ) : (
+        <p className="text-xs text-amber-200/90">
+          No on-chain transaction link in the agent response. Restart the agent after upgrading the
+          merchant server; check logs for &quot;checkout tx extract&quot;.
+        </p>
+      )}
+
+      {cartItems.length > 0 && (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide opacity-80">Items</p>
+          <ul className="mt-1 space-y-1 text-xs">
+            {cartItems.map((it, idx) => (
+              <li key={`${it.title}-${idx}`} className="flex justify-between gap-2">
+                <span>
+                  {it.title}
+                  {it.quantity > 1 ? (
+                    <span className="opacity-70"> ×{it.quantity}</span>
+                  ) : null}
+                </span>
+                <span className="shrink-0 tabular-nums">${formatUsdFromCents(it.lineTotalCents)}</span>
+              </li>
+            ))}
+          </ul>
+          {totalCents != null && (
+            <p className="mt-2 flex justify-between border-t border-green-200/80 pt-2 text-xs font-semibold dark:border-green-800/80">
+              <span>Total</span>
+              <span className="tabular-nums">${formatUsdFromCents(totalCents)}</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {paidUsdc != null && (
+        <p className="text-xs opacity-80">Paid {paidUsdc.toFixed(2)} USDC</p>
+      )}
+    </div>
+  );
+}
+
 function ThinkingIndicator() {
   return (
     <div className="flex items-center gap-2 self-end">
@@ -128,28 +239,38 @@ export function TaskInteraction({ taskId, task, initialStatus, eventsUrl }: Task
     | { kind: "tool"; tool: string; args: Record<string, unknown>; result?: string }
     | { kind: "thinking" }
     | { kind: "text"; text: string }
-    | { kind: "done"; success: boolean; result: string };
+    | {
+        kind: "done";
+        success: boolean;
+        result: string;
+        order?: Record<string, unknown> | null;
+      };
 
   const bubbles: Bubble[] = [];
-  let pendingTool: { tool: string; args: Record<string, unknown> } | null = null;
 
   for (const evt of events as AgentEvent[]) {
     if (evt.type === "thinking") {
       bubbles.push({ kind: "thinking" });
     } else if (evt.type === "tool_call") {
-      pendingTool = { tool: evt.tool, args: evt.args };
       bubbles.push({ kind: "tool", tool: evt.tool, args: evt.args });
     } else if (evt.type === "tool_result") {
       // Attach result to the last tool bubble
       const last = bubbles[bubbles.length - 1];
       if (last?.kind === "tool") {
         last.result = evt.result;
-        pendingTool = null;
       }
     } else if (evt.type === "text") {
       bubbles.push({ kind: "text", text: evt.text });
     } else if (evt.type === "done") {
-      bubbles.push({ kind: "done", success: evt.success, result: evt.result });
+      bubbles.push({
+        kind: "done",
+        success: evt.success,
+        result: evt.result,
+        order:
+          evt.order && typeof evt.order === "object"
+            ? (evt.order as Record<string, unknown>)
+            : undefined,
+      });
     }
   }
 
@@ -190,6 +311,8 @@ export function TaskInteraction({ taskId, task, initialStatus, eventsUrl }: Task
           }
 
           if (b.kind === "done") {
+            const purchase =
+              b.success && b.order && b.order.success === true ? b.order : null;
             return (
               <div
                 key={i}
@@ -203,7 +326,12 @@ export function TaskInteraction({ taskId, task, initialStatus, eventsUrl }: Task
                 <span className="font-medium block mb-0.5">
                   {b.success ? "Task complete" : "Task failed"}
                 </span>
-                {b.result}
+                {b.result ? (
+                  <p className="whitespace-pre-wrap text-green-900/90 dark:text-green-100/90">
+                    {b.result}
+                  </p>
+                ) : null}
+                {purchase ? <TaskPurchaseSummary purchase={purchase} /> : null}
               </div>
             );
           }

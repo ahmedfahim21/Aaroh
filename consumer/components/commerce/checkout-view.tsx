@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useWallets } from "@privy-io/react-auth";
+import { ExternalLinkIcon } from "lucide-react";
 import { createWalletClient, custom, getAddress, isAddress } from "viem";
 import { baseSepolia } from "viem/chains";
+import {
+  extractTxHashFromCheckout,
+  lineItemsFromCheckout,
+  orderIdFromCheckout,
+  totalCentsFromCheckout,
+  txExplorerUrl,
+} from "@/lib/checkout-receipt";
 import { cn } from "@/lib/utils";
 import {
   BASE_SEPOLIA_CHAIN_ID,
@@ -42,6 +50,98 @@ type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
+function formatUsdFromCents(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+function CheckoutSuccessSummary({ receipt }: { receipt: Record<string, unknown> | null }) {
+  const txHash = receipt ? extractTxHashFromCheckout(receipt) : undefined;
+  const txUrl = txExplorerUrl(txHash);
+  const orderId = receipt ? orderIdFromCheckout(receipt) : undefined;
+  const lines = receipt ? lineItemsFromCheckout(receipt) : [];
+  const totalCents = receipt ? totalCentsFromCheckout(receipt) : undefined;
+
+  return (
+    <div className="space-y-3 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200">
+      <p className="font-medium text-green-900 dark:text-green-100">Payment confirmed</p>
+
+      {txUrl ? (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-green-800/90 dark:text-green-300/90">
+            Blockchain proof
+          </p>
+          <a
+            href={txUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex items-center gap-1 break-all font-mono text-xs underline-offset-2 hover:underline"
+          >
+            View transaction on Base Sepolia
+            <ExternalLinkIcon className="size-3.5 shrink-0" />
+          </a>
+        </div>
+      ) : (
+        <p className="text-xs text-amber-800 dark:text-amber-200/90">
+          On-chain transaction link unavailable for this checkout. Check agent or merchant
+          logs for settlement details.
+        </p>
+      )}
+
+      {orderId && (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-green-800/90 dark:text-green-300/90">
+            Order reference
+          </p>
+          <p className="mt-0.5 font-mono text-xs text-green-800/80 dark:text-green-300/80 break-all">
+            {orderId}
+          </p>
+        </div>
+      )}
+
+      {lines.length > 0 && (
+        <div className="border-t border-green-200/80 pt-2 dark:border-green-800/80">
+          <p className="text-xs font-medium uppercase tracking-wide text-green-800/90 dark:text-green-300/90">
+            Items
+          </p>
+          <ul className="mt-1 space-y-1.5">
+            {lines.map((it, i) => (
+              <li
+                key={`${it.title}-${i}`}
+                className="flex justify-between gap-2 text-xs"
+              >
+                <span>
+                  {it.title}
+                  {it.quantity > 1 ? (
+                    <span className="text-green-800/70 dark:text-green-300/70">
+                      {" "}
+                      ×{it.quantity}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  ${formatUsdFromCents(it.lineTotalCents)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {totalCents != null && (
+            <p className="mt-2 flex justify-between border-t border-green-200/80 pt-2 text-xs font-semibold dark:border-green-800/80">
+              <span>Total</span>
+              <span className="tabular-nums">${formatUsdFromCents(totalCents)}</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {!txUrl && lines.length === 0 && (
+        <p className="text-xs text-green-800/80 dark:text-green-300/80">
+          Your order is complete. You can review purchases under Transactions when enabled.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function normalizeWalletError(error: unknown): {
   code?: number;
   message: string;
@@ -71,7 +171,11 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
   const { wallets } = useWallets();
   const [payState, setPayState] = useState<PayState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [txInfo, setTxInfo] = useState<string | null>(null);
+  /** Merchant checkout JSON after pay or status hydrate */
+  const [completedReceipt, setCompletedReceipt] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
 
   const orderCents = data.order_total ?? 0;
   const amountUsdc = orderCents / 100; // cents → USD ≈ USDC
@@ -94,13 +198,23 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
     })
       .then(async (r) => {
         if (!r.ok) return null;
-        return r.json() as Promise<{ completed?: boolean; order_id?: string | null }>;
+        return r.json() as Promise<{
+          completed?: boolean;
+          order_id?: string | null;
+          checkout?: Record<string, unknown>;
+        }>;
       })
       .then((body) => {
         if (!body) return;
         if (body.completed) {
           setPayState("success");
-          setTxInfo(body.order_id ?? "confirmed");
+          if (body.checkout && typeof body.checkout === "object") {
+            setCompletedReceipt(body.checkout);
+          } else if (body.order_id) {
+            setCompletedReceipt({
+              order: { id: body.order_id },
+            });
+          }
         }
       })
       .catch((err: unknown) => {
@@ -307,7 +421,11 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
         );
       }
 
-      setTxInfo(result?.order?.id ?? "confirmed");
+      setCompletedReceipt(
+        result && typeof result === "object"
+          ? (result as Record<string, unknown>)
+          : null
+      );
       setPayState("success");
     } catch (err: unknown) {
       const normalized = normalizeWalletError(err);
@@ -370,9 +488,7 @@ export function CheckoutView({ data, className }: CheckoutViewProps) {
         )}
 
         {payState === "success" ? (
-          <div className="rounded-md bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 px-3 py-2 text-green-700 dark:text-green-300 text-sm">
-            Payment confirmed{txInfo ? ` — order ${txInfo}` : ""}!
-          </div>
+          <CheckoutSuccessSummary receipt={completedReceipt} />
         ) : (
           <>
             {payState === "error" && errorMsg && (

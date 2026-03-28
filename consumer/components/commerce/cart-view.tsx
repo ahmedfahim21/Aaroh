@@ -2,25 +2,30 @@
 
 import { cn } from "@/lib/utils";
 
-const INR = new Intl.NumberFormat("en-IN", {
+const USD = new Intl.NumberFormat("en-US", {
   style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-  minimumFractionDigits: 0,
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
 });
 
 export type CartItemData = {
   product_id: string;
   title: string;
   quantity: number;
-  price_paise: number;
-  line_total_paise: number;
+  /** USD cents (alias keys match backend JSON). */
+  price_cents?: number;
+  price_paise?: number;
+  line_total_cents?: number;
+  line_total_paise?: number;
 };
 
 export type CartViewData = {
   _ui?: { type: string };
   items: CartItemData[];
-  total_paise: number;
+  /** USD cents (alias keys match backend JSON). */
+  total_cents?: number;
+  total_paise?: number;
   message?: string;
 };
 
@@ -29,9 +34,25 @@ type CartViewProps = {
   className?: string;
 };
 
+function itemUnitCents(item: CartItemData): number {
+  return item.price_cents ?? item.price_paise ?? 0;
+}
+
+function itemLineCents(item: CartItemData): number {
+  return (
+    item.line_total_cents ??
+    item.line_total_paise ??
+    itemUnitCents(item) * item.quantity
+  );
+}
+
+function formatUsdCents(cents: number): string {
+  return USD.format(cents / 100);
+}
+
 export function CartView({ data, className }: CartViewProps) {
   const items = data.items ?? [];
-  const totalPaise = data.total_paise ?? 0;
+  const totalCents = data.total_cents ?? data.total_paise ?? 0;
 
   if (items.length === 0) {
     return (
@@ -70,18 +91,18 @@ export function CartView({ data, className }: CartViewProps) {
                 {item.title}
               </p>
               <p className="text-muted-foreground text-xs">
-                {INR.format(item.price_paise / 100)} × {item.quantity}
+                {formatUsdCents(itemUnitCents(item))} × {item.quantity}
               </p>
             </div>
             <div className="shrink-0 font-medium text-sm text-foreground">
-              {INR.format(item.line_total_paise / 100)}
+              {formatUsdCents(itemLineCents(item))}
             </div>
           </li>
         ))}
       </ul>
       <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-3 font-semibold text-foreground">
         <span>Total</span>
-        <span>{INR.format(totalPaise / 100)}</span>
+        <span>{formatUsdCents(totalCents)}</span>
       </div>
     </div>
   );
