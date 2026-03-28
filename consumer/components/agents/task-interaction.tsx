@@ -113,11 +113,11 @@ function TaskPurchaseSummary({ purchase }: { purchase: Record<string, unknown> }
       ? (purchase.order as Record<string, unknown>)
       : null;
 
+  const txHash =
+    extractTxHashFromCheckout(purchase) ??
+    (merchantCheckout ? extractTxHashFromCheckout(merchantCheckout) : undefined);
   const txUrl =
-    (typeof purchase.tx_url === "string" && purchase.tx_url) ||
-    txExplorerUrl(typeof purchase.tx_hash === "string" ? purchase.tx_hash : undefined) ||
-    txExplorerUrl(extractTxHashFromCheckout(purchase)) ||
-    (merchantCheckout ? txExplorerUrl(extractTxHashFromCheckout(merchantCheckout)) : undefined);
+    (typeof purchase.tx_url === "string" && purchase.tx_url.trim()) || txExplorerUrl(txHash);
 
   const cartSummary = purchase.cart_summary;
   const cartItems =
@@ -154,23 +154,27 @@ function TaskPurchaseSummary({ purchase }: { purchase: Record<string, unknown> }
 
   return (
     <div className="mt-3 space-y-3 border-t border-green-200/80 pt-3 text-green-900 dark:border-green-800/80 dark:text-green-100">
-      {txUrl ? (
+      {txHash ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide opacity-80">Blockchain proof</p>
-          <a
-            href={txUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center gap-1 break-all font-mono text-xs underline-offset-2 hover:underline"
-          >
-            View transaction on Base Sepolia
-            <ExternalLinkIcon className="size-3.5 shrink-0" />
-          </a>
+          <p className="mt-2 text-xs font-medium uppercase tracking-wide opacity-80">Transaction ID</p>
+          <p className="mt-0.5 break-all font-mono text-xs opacity-95">{txHash}</p>
+          {txUrl ? (
+            <a
+              href={txUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 font-mono text-xs font-medium underline-offset-2 hover:underline"
+            >
+              View on Base Sepolia (block explorer)
+              <ExternalLinkIcon className="size-3.5 shrink-0" />
+            </a>
+          ) : null}
         </div>
       ) : (
         <p className="text-xs text-amber-200/90">
-          No on-chain transaction link in the agent response. Restart the agent after upgrading the
-          merchant server; check logs for &quot;checkout tx extract&quot;.
+          No on-chain transaction in the agent response. Ensure the merchant returns PAYMENT-RESPONSE
+          or x402_transaction on checkout complete.
         </p>
       )}
 

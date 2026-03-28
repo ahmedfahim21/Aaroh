@@ -56,7 +56,12 @@ function formatUsdFromCents(cents: number): string {
 
 function CheckoutSuccessSummary({ receipt }: { receipt: Record<string, unknown> | null }) {
   const txHash = receipt ? extractTxHashFromCheckout(receipt) : undefined;
-  const txUrl = txExplorerUrl(txHash);
+  const txUrl =
+    (receipt &&
+      typeof receipt.tx_url === "string" &&
+      receipt.tx_url.trim() &&
+      receipt.tx_url) ||
+    txExplorerUrl(txHash);
   const orderId = receipt ? orderIdFromCheckout(receipt) : undefined;
   const lines = receipt ? lineItemsFromCheckout(receipt) : [];
   const totalCents = receipt ? totalCentsFromCheckout(receipt) : undefined;
@@ -65,25 +70,33 @@ function CheckoutSuccessSummary({ receipt }: { receipt: Record<string, unknown> 
     <div className="space-y-3 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200">
       <p className="font-medium text-green-900 dark:text-green-100">Payment confirmed</p>
 
-      {txUrl ? (
+      {txHash ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-green-800/90 dark:text-green-300/90">
             Blockchain proof
           </p>
-          <a
-            href={txUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center gap-1 break-all font-mono text-xs underline-offset-2 hover:underline"
-          >
-            View transaction on Base Sepolia
-            <ExternalLinkIcon className="size-3.5 shrink-0" />
-          </a>
+          <p className="mt-2 text-xs font-medium uppercase tracking-wide text-green-800/90 dark:text-green-300/90">
+            Transaction ID
+          </p>
+          <p className="mt-0.5 break-all font-mono text-xs text-green-900 dark:text-green-100">
+            {txHash}
+          </p>
+          {txUrl ? (
+            <a
+              href={txUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 font-mono text-xs font-medium text-green-800 underline-offset-2 hover:underline dark:text-green-200"
+            >
+              View on Base Sepolia (block explorer)
+              <ExternalLinkIcon className="size-3.5 shrink-0" />
+            </a>
+          ) : null}
         </div>
       ) : (
         <p className="text-xs text-amber-800 dark:text-amber-200/90">
-          On-chain transaction link unavailable for this checkout. Check agent or merchant
-          logs for settlement details.
+          On-chain transaction unavailable for this checkout. Ensure checkout complete returns
+          PAYMENT-RESPONSE or x402_transaction.
         </p>
       )}
 
@@ -133,7 +146,7 @@ function CheckoutSuccessSummary({ receipt }: { receipt: Record<string, unknown> 
         </div>
       )}
 
-      {!txUrl && lines.length === 0 && (
+      {!txHash && lines.length === 0 && (
         <p className="text-xs text-green-800/80 dark:text-green-300/80">
           Your order is complete. You can review purchases under Transactions when enabled.
         </p>

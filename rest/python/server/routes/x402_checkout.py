@@ -61,12 +61,22 @@ def x402_enabled() -> bool:
     return bool(resolve_merchant_wallet())
 
 
+def _is_non_empty_tx_hash(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    if not s:
+        return False
+    hex_part = s[2:] if s.startswith("0x") else s
+    return len(hex_part) == 64 and all(c in "0123456789abcdefABCDEF" for c in hex_part)
+
+
 async def handle_x402_checkout(
     request: Request,
     checkout_id: str,
     total_minor_units: int,
-) -> dict[str, Any]:
-    """Run the x402 payment flow for a checkout and return a synthetic EVM instrument.
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run the x402 payment flow for a checkout.
 
     Called at the start of complete_checkout when x402 is enabled.  Builds
     payment requirements from the exact cart total so the client signs the
@@ -75,7 +85,7 @@ async def handle_x402_checkout(
     Flow:
         1. No X-PAYMENT header → raise HTTPException(402) with X-PAYMENT-REQUIRED.
         2. X-PAYMENT present → verify with facilitator → settle on-chain.
-        3. Verified → return EVM instrument dict for checkout_service.
+        3. Verified → return EVM instrument + canonical SettlementResponse body.
 
     Args:
         request:           FastAPI request (reads the X-PAYMENT header).
@@ -84,10 +94,12 @@ async def handle_x402_checkout(
                            Converted to USDC micro-units (6 decimals) for x402.
 
     Returns:
-        Synthetic EVM payment_data dict accepted by PaymentCreateRequest.
+        (instrument_dict, settlement_response_dict).
+        settlement_response_dict matches x402 SettlementResponse (for PAYMENT-RESPONSE header).
 
     Raises:
         HTTPException(402): Payment absent, invalid, or settlement failed.
+
     """
     merchant_wallet = resolve_merchant_wallet()
     if not merchant_wallet:
@@ -198,15 +210,32 @@ async def handle_x402_checkout(
             detail=f"x402 payment settlement failed: {reason}",
         )
 
-    tx_hash = settle_data.get("transaction", "x402_settled")
+    tx_hash = settle_data.get("transaction")
+    if not _is_non_empty_tx_hash(tx_hash):
+        raise HTTPException(
+            status_code=402,
+            detail="x402 settlement succeeded but facilitator returned no valid transaction hash",
+        )
+    tx_normalized = str(tx_hash).strip()
+
+    payer = settle_data.get("payer") or verify_data.get("payer")
+    settlement_response: dict[str, Any] = {
+        "success": True,
+        "transaction": tx_normalized,
+        "network": network,
+    }
+    if isinstance(payer, str) and payer.strip():
+        settlement_response["payer"] = payer.strip()
+
     logger.info(
-        "x402 payment settled for checkout %s tx=%s", checkout_id, tx_hash
+        "x402 payment settled for checkout %s tx=%s", checkout_id, tx_normalized
     )
 
-    return {
+    instrument = {
         "id": "evm_1",
         "handler_id": "evm",
         "handler_name": "org.ethereum.evm",
         "type": "token",
-        "credential": {"type": "token", "token": tx_hash},
+        "credential": {"type": "token", "token": tx_normalized},
     }
+    return instrument, settlement_response

@@ -8,7 +8,13 @@ export type AgentEvent =
   | { type: "tool_result"; tool: string; result: string }
   | { type: "text"; text: string }
   | { type: "log"; level: string; msg: string }
-  | { type: "done"; success: boolean; result: string }
+  | {
+      type: "done";
+      success: boolean;
+      result: string;
+      /** submit_payment envelope or merchant checkout — tx_url, cart_summary, nested order */
+      order?: Record<string, unknown> | null;
+    }
   | { type: "keepalive" };
 
 export function useTaskSSE(taskId: string | null, eventsUrl?: string) {

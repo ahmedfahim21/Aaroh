@@ -131,7 +131,15 @@ def _run_task(
         record.status = "done" if result["success"] else "failed"
         record.result = result["result"]
         record.order = result.get("order")
-        _push_event(task_id, {"type": "done", "success": result["success"], "result": result["result"]})
+        _push_event(
+            task_id,
+            {
+                "type": "done",
+                "success": result["success"],
+                "result": result["result"],
+                "order": result.get("order"),
+            },
+        )
     except Exception as exc:
         log.exception("Task %s raised an exception", task_id)
         record = _tasks[task_id]

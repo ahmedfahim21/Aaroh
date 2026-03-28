@@ -17,6 +17,8 @@
 Injects business logic into generated routes.
 """
 
+import base64
+import json
 import logging
 import re
 from typing import Annotated, Any
@@ -35,6 +37,7 @@ from models import UnifiedCheckoutCreateRequest
 from pydantic import BaseModel
 from pydantic import HttpUrl
 from routes.x402_checkout import handle_x402_checkout, x402_enabled
+from starlette.responses import JSONResponse
 from services.checkout_service import CheckoutService
 from ucp_sdk.models.schemas.shopping.ap2_mandate import Ap2CompleteRequest
 from ucp_sdk.models.schemas.shopping.order import Order
@@ -208,16 +211,20 @@ async def complete_checkout(
   """Complete Checkout Implementation."""
   del common_headers  # Unused
 
+  x402_settlement: dict[str, Any] | None = None
   if x402_enabled():
     # Fetch the checkout to get the exact cart total for per-session x402
     # payment requirements.  Raises HTTPException(402) if payment is absent
-    # or invalid; returns a synthetic EVM instrument dict when verified.
+    # or invalid; returns instrument + canonical SettlementResponse.
     checkout_state = await checkout_service.get_checkout(checkout_id)
     total = next(
       (t.amount for t in (checkout_state.totals or []) if t.type == "total"),
       0,
     )
-    payment_data = await handle_x402_checkout(request, checkout_id, total)
+    instrument, x402_settlement = await handle_x402_checkout(
+      request, checkout_id, total
+    )
+    payment_data = instrument
   elif payment_data is None:
     raise HTTPException(
       status_code=422,
@@ -238,7 +245,19 @@ async def complete_checkout(
   checkout_result = await checkout_service.complete_checkout(
     checkout_id, payment_req, risk_signals or {}, idempotency_key, ap2=ap2
   )
-  return checkout_result.model_dump(mode="json", by_alias=True)
+  body = checkout_result.model_dump(mode="json", by_alias=True)
+  if x402_settlement is not None:
+    tx = x402_settlement.get("transaction")
+    if isinstance(tx, str) and tx.strip():
+      body["x402_transaction"] = tx.strip()
+    payment_response_b64 = base64.b64encode(
+      json.dumps(x402_settlement, separators=(",", ":")).encode()
+    ).decode()
+    return JSONResponse(
+      content=body,
+      headers={"PAYMENT-RESPONSE": payment_response_b64},
+    )
+  return body
 
 
 async def cancel_checkout(
