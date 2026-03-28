@@ -25,6 +25,7 @@ def run_shopping_agent(
     available_merchants: list[dict] | None = None,
     agent_id: int | None = None,
     emit: EmitFn | None = None,
+    consumer_agent_id: str | None = None,
     agent_private_key: str | None = None,
 ) -> dict[str, Any]:
     """Drive AI through a full shopping task autonomously.
@@ -34,6 +35,8 @@ def run_shopping_agent(
         available_merchants: List of {"name": str, "url": str} dicts the agent can shop at.
         agent_id:            EIP-8004 agentId to include in identity headers.
         emit:                Optional callback for real-time event streaming.
+        consumer_agent_id:   UUID of consumer app Agent row — loads encrypted key server-side.
+        agent_private_key:   Optional explicit key (e.g. demo / tests only).
 
     Returns:
         {"success": bool, "result": str, "order": dict | None}
@@ -41,20 +44,37 @@ def run_shopping_agent(
     from shopping.evm import agent_address  # late import — may raise if key not set
     from eth_account import Account as _Account
 
+    from shopping.keys import load_agent_private_key as load_stored_agent_key
+
     def _emit(event: dict) -> None:
         if emit:
             emit(event)
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
-    client = genai.Client(api_key=api_key)
-    session = ShoppingSession(default_merchant_url=None, agent_id=agent_id, emit=emit, agent_private_key=agent_private_key)
+    resolved_key: str | None = agent_private_key
+    if consumer_agent_id and not resolved_key:
+        resolved_key = load_stored_agent_key(consumer_agent_id)
+        if not resolved_key:
+            raise RuntimeError(
+                f"No server-side key for agent id {consumer_agent_id!r}. "
+                "Create the agent via POST /agents or set AGENT_PRIVATE_KEY for demo mode."
+            )
 
-    # Determine display address (prefer per-agent key, fall back to global env var)
-    if agent_private_key:
+    api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_GENERATIVE_AI_API_KEY environment variable is not set")
+    client = genai.Client(api_key=api_key)
+    pinned_urls = [str(m["url"]).strip() for m in (available_merchants or []) if m.get("url")]
+    session = ShoppingSession(
+        default_merchant_url=None,
+        agent_id=agent_id,
+        emit=emit,
+        agent_private_key=resolved_key,
+        extra_discovery_urls=pinned_urls or None,
+    )
+
+    if resolved_key:
         try:
-            display_addr = _Account.from_key(agent_private_key).address
+            display_addr = _Account.from_key(resolved_key).address
         except Exception:
             display_addr = "unknown"
     else:
@@ -69,14 +89,27 @@ def run_shopping_agent(
     merchants_desc = ""
     if available_merchants:
         lines = "\n".join(f"  - {m['name']}: {m['url']}" for m in available_merchants)
-        merchants_desc = f"\n\nAvailable merchants (call discover_merchant with the URL first):\n{lines}"
+        merchants_desc = (
+            f"\n\nPreferred merchants (call discover_merchant with the correct URL first):\n{lines}"
+        )
+    else:
+        merchants_desc = (
+            "\n\nNo merchant URL was pinned in the UI. Do NOT ask the user for a URL. "
+            "Start with list_merchants() to discover configured stores, or find_merchant(query) "
+            "when the user names a store or category. Then call discover_merchant(url) before browsing. "
+            "If the user message contains an explicit http(s) base URL, you may discover_merchant "
+            "with that URL directly. If list_merchants reports missing configuration, say operators "
+            "must set MERCHANT_URL and/or MERCHANT_URLS on the agent—do not ask the human for URLs."
+        )
 
     base_system = (
         f"You are an autonomous shopping agent. Ethereum address: {display_addr} ({id_desc}). "
         "You hold USDC on Base Sepolia and pay for purchases autonomously via x402. "
-        "Complete the shopping task efficiently: discover the right merchant, find the product, "
-        "add it to cart, and call checkout_and_pay. Do not ask for confirmation — just execute. "
-        f"After a successful checkout, briefly summarise the purchase.{merchants_desc}"
+        "Never ask the human for merchant URLs, missing info, or confirmation—only use tools and complete the task. "
+        "Typical flow: list_merchants or find_merchant → discover_merchant → search/add_to_cart → "
+        "checkout() → submit_payment. "
+        "After a successful submit_payment, briefly summarise the purchase."
+        f"{merchants_desc}"
     )
     system = f"{base_system}\n\n{extra}" if extra else base_system
 
@@ -154,7 +187,7 @@ def run_shopping_agent(
             response_parts.append(
                 gtypes.Part.from_function_response(name=name, response={"result": result_str})
             )
-            if name == "checkout_and_pay":
+            if name == "submit_payment":
                 try:
                     data = json.loads(result_str)
                     if data.get("success"):

@@ -1,14 +1,24 @@
-import { getSessionById, updateSession } from "@/lib/db/queries-agents";
-
-const AGENT_URL = process.env.AGENT_URL ?? "http://localhost:8004";
+import { auth } from "@/app/(auth)/auth";
+import { agentBackendHeaders, AGENT_URL } from "@/lib/agent-backend";
+import { getAgentById, getSessionById, updateSession } from "@/lib/db/queries-agents";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string; sid: string }> }
 ) {
-  const { sid } = await params;
+  const authSession = await auth();
+  if (!authSession?.user?.id) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
+  const { id: agentId, sid } = await params;
+  const ag = await getAgentById(agentId, authSession.user.id);
+  if (!ag) {
+    return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+  }
+
   const session = await getSessionById(sid);
-  if (!session) {
+  if (!session || session.agentId !== agentId) {
     return new Response(JSON.stringify({ error: "Session not found" }), { status: 404 });
   }
 
@@ -25,10 +35,12 @@ export async function GET(
     });
   }
 
-  // Proxy SSE from agent.py with tee to DB write-back
-  const upstream = await fetch(`${AGENT_URL}/tasks/${sid}/events`, {
-    headers: { accept: "text/event-stream" },
-  });
+  const headers: Record<string, string> = {
+    accept: "text/event-stream",
+    ...agentBackendHeaders(false),
+  };
+
+  const upstream = await fetch(`${AGENT_URL}/tasks/${sid}/events`, { headers });
 
   if (!upstream.ok || !upstream.body) {
     return new Response("data: " + JSON.stringify({ type: "done", success: false, result: "Agent unreachable" }) + "\n\n", {
@@ -41,7 +53,6 @@ export async function GET(
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
 
-  // Drain upstream in background, tee to writer + accumulate for DB
   (async () => {
     const reader = upstream.body!.getReader();
     const decoder = new TextDecoder();
@@ -52,10 +63,8 @@ export async function GET(
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        // Forward raw bytes to browser
         await writer.write(value);
 
-        // Parse SSE lines for DB accumulation
         buffer += chunk;
         const parts = buffer.split("\n\n");
         buffer = parts.pop() ?? "";
@@ -83,7 +92,11 @@ export async function GET(
     } catch {
       // browser disconnected or upstream closed
     } finally {
-      try { await writer.close(); } catch { /* ignore */ }
+      try {
+        await writer.close();
+      } catch {
+        /* ignore */
+      }
     }
   })();
 

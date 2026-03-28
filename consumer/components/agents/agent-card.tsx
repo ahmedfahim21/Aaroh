@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAgentBalance } from "@/hooks/use-agent-balance";
+import { CopyAgentAddressButton } from "./copy-agent-address-button";
 import { FundAgentDialog } from "./fund-agent-dialog";
 import type { Agent } from "@/lib/db/schema";
 
@@ -22,7 +23,16 @@ export function AgentCard({ agent }: { agent: Agent }) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <h3 className="font-medium truncate">{agent.name}</h3>
-            <p className="text-xs text-muted-foreground font-mono mt-0.5">{shortAddr}</p>
+            <div className="mt-0.5 flex min-w-0 items-center gap-0.5">
+              <p className="min-w-0 truncate text-xs font-mono text-muted-foreground">
+                {shortAddr}
+              </p>
+              <CopyAgentAddressButton
+                address={agent.walletAddress}
+                stopPropagation
+                className="-mr-1"
+              />
+            </div>
           </div>
           <div className="text-right shrink-0">
             <p className="text-sm font-medium tabular-nums">

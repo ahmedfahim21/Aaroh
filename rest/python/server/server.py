@@ -46,6 +46,20 @@ def create_app() -> FastAPI:
     lifespan=config.lifespan,
   )
 
+  @app.middleware("http")
+  async def capture_request_body_for_signature(request: Request, call_next):
+    """Allow Request-Signature verification to read the same bytes FastAPI parses as JSON."""
+    body = b""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+      body = await request.body()
+
+      async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+      request = Request(request.scope, receive)
+    request.state.body_bytes = body
+    return await call_next(request)
+
   @app.exception_handler(UcpError)
   async def ucp_exception_handler(request: Request, exc: UcpError):
     """Handle UCP-specific exceptions and converts them to JSON responses."""

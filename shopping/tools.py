@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+from shopping.merchant_discovery import find_merchant_json, list_merchants_json
 from shopping.session import ShoppingSession
 
 # ── Tool schema lists ─────────────────────────────────────────────────────────
@@ -10,12 +11,51 @@ from shopping.session import ShoppingSession
 # Tools available to the autonomous agent
 AGENT_TOOLS: list[dict] = [
     {
-        "name": "discover_merchant",
-        "description": "Connect to a UCP merchant by URL. Call this first before browsing or buying.",
+        "name": "list_merchants",
+        "description": (
+            "List UCP merchants reachable from MERCHANT_URL / MERCHANT_URLS in the environment, "
+            "plus any base URLs pinned for this task (dispatch). "
+            "Probes each base URL for /.well-known/ucp. Optional category filters product_categories."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "merchant_url": {"type": "string", "description": "Merchant base URL, e.g. http://localhost:8000"}
+                "category": {
+                    "type": "string",
+                    "description": "Optional: substring match on merchant product_categories",
+                },
+            },
+        },
+    },
+    {
+        "name": "find_merchant",
+        "description": (
+            "Find merchants by name or product category substring; if exactly one match, "
+            "connects automatically. If zero or multiple matches, use discover_merchant(url) "
+            "with a URL from the response."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "e.g. store name or category keyword"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "discover_merchant",
+        "description": (
+            "Connect to a UCP merchant by base URL (fetch /.well-known/ucp). "
+            "Call after list_merchants or when you already know the URL. "
+            "Required before browse/search/cart/checkout if not yet connected."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "merchant_url": {
+                    "type": "string",
+                    "description": "Merchant base URL without trailing slash",
+                }
             },
             "required": ["merchant_url"],
         },
@@ -63,13 +103,30 @@ AGENT_TOOLS: list[dict] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
-        "name": "checkout_and_pay",
+        "name": "checkout",
         "description": (
-            "Create a checkout session and autonomously pay via x402 (EIP-3009 USDC on Base Sepolia). "
-            "The agent signs with its EIP-8004 identity wallet — no human needed. "
-            "Call this once the cart has all desired items."
+            "Create a checkout session and retrieve x402 payment requirements (HTTP 402) from the merchant. "
+            "Returns pay_to, amount in micro-USDC, and checkout_session_id. "
+            "You MUST then call submit_payment with that checkout_session_id to sign and pay."
         ),
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "submit_payment",
+        "description": (
+            "Sign the x402 EIP-3009 USDC authorization with the agent wallet and complete checkout. "
+            "Call only after checkout() returned payment requirements."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "checkout_session_id": {
+                    "type": "string",
+                    "description": "checkout_session_id from the prior checkout() tool result",
+                },
+            },
+            "required": ["checkout_session_id"],
+        },
     },
 ]
 
@@ -77,6 +134,19 @@ AGENT_TOOLS: list[dict] = [
 def dispatch_tool(session: ShoppingSession, tool_name: str, tool_input: dict[str, Any]) -> str:
     """Route a tool call to the appropriate ShoppingSession method."""
     match tool_name:
+        case "list_merchants":
+            return list_merchants_json(
+                tool_input.get("category") or None,
+                connected_base_url=session.merchant_base_url,
+                extra_base_urls=session.extra_discovery_urls,
+            )
+        case "find_merchant":
+            return find_merchant_json(
+                tool_input["query"],
+                lambda url: session.discover_merchant(url),
+                connected_base_url=session.merchant_base_url,
+                extra_base_urls=session.extra_discovery_urls,
+            )
         case "discover_merchant":
             return session.discover_merchant(tool_input["merchant_url"])
         case "browse_categories":
@@ -92,7 +162,9 @@ def dispatch_tool(session: ShoppingSession, tool_name: str, tool_input: dict[str
             return session.add_to_cart(tool_input["product_id"], int(tool_input.get("quantity", 1)))
         case "view_cart":
             return session.view_cart()
-        case "checkout_and_pay":
-            return session.checkout_and_pay()
+        case "checkout":
+            return session.autonomous_checkout_request_payment()
+        case "submit_payment":
+            return session.submit_payment(tool_input["checkout_session_id"])
         case _:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

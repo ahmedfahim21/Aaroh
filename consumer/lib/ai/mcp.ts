@@ -13,8 +13,11 @@ async function getOrCreateClient() {
   }
 
   const merchantUrl =
-    process.env.MCP_MERCHANT_URL || "http://localhost:8000";
-  const merchantName = process.env.MCP_MERCHANT_NAME || "Artisan India";
+    process.env.MCP_MERCHANT_URL?.trim() ||
+    process.env.MERCHANT_URL?.trim() ||
+    "";
+  const merchantName =
+    process.env.MCP_MERCHANT_NAME?.trim() || "Merchant";
 
   const transport = new StdioClientTransport({
     command: process.env.MCP_UV_PATH || "uv",

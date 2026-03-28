@@ -1,11 +1,14 @@
 """ShoppingSession — stateful cart + UCP merchant interaction.
 
 Shared by the autonomous agent (agent.py) and the MCP server (mcp_client.py).
-The agent calls checkout_and_pay() for autonomous x402 payment.
+The autonomous agent uses checkout() + submit_payment() for a two-step x402 flow.
 The MCP client calls checkout() + complete_checkout(x_payment) where the
 human provides the signed x_payment header.
 """
 
+from __future__ import annotations
+
+import hashlib
 import json
 import logging
 import os
@@ -22,6 +25,10 @@ log = logging.getLogger(__name__)
 EmitFn = Callable[[dict], None]
 
 
+def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
 class ShoppingSession:
     """Holds merchant context, cart, and checkout state for one shopping flow."""
 
@@ -31,16 +38,22 @@ class ShoppingSession:
         agent_id: int | None = None,
         emit: EmitFn | None = None,
         agent_private_key: str | None = None,
+        extra_discovery_urls: list[str] | None = None,
     ):
         self.merchant_base_url: str | None = (
             (default_merchant_url or os.environ.get("MERCHANT_URL", "")).rstrip("/") or None
         )
+        self.extra_discovery_urls: list[str] = [
+            str(u).strip().rstrip("/") for u in (extra_discovery_urls or []) if str(u or "").strip()
+        ]
         self.merchant_profile: dict[str, Any] | None = None
         self.cart: list[dict[str, Any]] = []
         self.checkout_session_id: str | None = None
         self.agent_id = agent_id
         self._emit = emit  # optional: called with event dicts for monitoring
-        self._agent_private_key = agent_private_key  # per-agent derived key (takes priority)
+        self._agent_private_key = agent_private_key  # server-side only; never from browser
+        # checkout_session_id -> {"accepts_entry": dict, "total_cents": int}
+        self._x402_requirements: dict[str, dict[str, Any]] = {}
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -51,13 +64,26 @@ class ShoppingSession:
     def _agent_address(self) -> str | None:
         if self._agent_private_key:
             from eth_account import Account as _Account
+
             return _Account.from_key(self._agent_private_key).address
         try:
             return agent_address()
         except RuntimeError:
             return None
 
-    def _ucp_headers(self) -> dict[str, str]:
+    def _request_signature(self, body_bytes: bytes) -> str:
+        """EIP-191 personal_sign over SHA256(body) when agent key exists; else browser placeholder."""
+        if not self._agent_private_key:
+            return "browser"
+        from eth_account import Account as _Account
+        from eth_account.messages import encode_defunct
+
+        digest = hashlib.sha256(body_bytes).digest()
+        message = encode_defunct(primitive=digest)
+        signed = _Account.from_key(self._agent_private_key).sign_message(message)
+        return f"eip191-sha256=0x{signed.signature.hex()}"
+
+    def _ucp_headers(self, body_bytes: bytes = b"") -> dict[str, str]:
         addr = self._agent_address()
         if addr:
             agent_id_part = f";erc8004={self.agent_id}" if self.agent_id is not None else ""
@@ -66,7 +92,7 @@ class ShoppingSession:
             profile = 'profile="ucp-agent"'
         return {
             "UCP-Agent": profile,
-            "Request-Signature": "agent-auto",
+            "Request-Signature": self._request_signature(body_bytes),
             "Idempotency-Key": str(uuid.uuid4()),
             "Request-Id": str(uuid.uuid4()),
             "Content-Type": "application/json",
@@ -83,7 +109,10 @@ class ShoppingSession:
         if self.merchant_base_url:
             try:
                 with httpx.Client(timeout=10.0) as c:
-                    r = c.get(f"{self.merchant_base_url}/.well-known/ucp")
+                    r = c.get(
+                        f"{self.merchant_base_url}/.well-known/ucp",
+                        headers=self._ucp_headers(b""),
+                    )
                     r.raise_for_status()
                     self.merchant_profile = r.json()
             except Exception:
@@ -103,7 +132,7 @@ class ShoppingSession:
         self._log("info", f"Connecting to merchant {url}")
         try:
             with httpx.Client(timeout=10.0) as c:
-                r = c.get(f"{url}/.well-known/ucp")
+                r = c.get(f"{url}/.well-known/ucp", headers=self._ucp_headers(b""))
                 r.raise_for_status()
                 self.merchant_profile = r.json()
                 self.merchant_base_url = url
@@ -129,7 +158,10 @@ class ShoppingSession:
             return json.dumps(err)
         try:
             with httpx.Client(timeout=10.0) as c:
-                r = c.get(f"{self.merchant_base_url}/catalogue")
+                r = c.get(
+                    f"{self.merchant_base_url}/catalogue",
+                    headers=self._ucp_headers(b""),
+                )
                 r.raise_for_status()
                 data = r.json()
         except httpx.HTTPError as e:
@@ -153,7 +185,11 @@ class ShoppingSession:
         self._log("info", f"Searching products: query={query!r} category={category!r}")
         try:
             with httpx.Client(timeout=10.0) as c:
-                r = c.get(f"{self.merchant_base_url}/products", params=params)
+                r = c.get(
+                    f"{self.merchant_base_url}/products",
+                    params=params,
+                    headers=self._ucp_headers(b""),
+                )
                 r.raise_for_status()
                 data = r.json()
         except httpx.HTTPError as e:
@@ -177,7 +213,10 @@ class ShoppingSession:
             return json.dumps(err)
         try:
             with httpx.Client(timeout=10.0) as c:
-                r = c.get(f"{self.merchant_base_url}/products/{product_id}")
+                r = c.get(
+                    f"{self.merchant_base_url}/products/{product_id}",
+                    headers=self._ucp_headers(b""),
+                )
                 r.raise_for_status()
                 p = r.json()
         except httpx.HTTPError as e:
@@ -200,7 +239,10 @@ class ShoppingSession:
             return json.dumps({"error": "Quantity must be at least 1."})
         try:
             with httpx.Client(timeout=10.0) as c:
-                r = c.get(f"{self.merchant_base_url}/products/{product_id}")
+                r = c.get(
+                    f"{self.merchant_base_url}/products/{product_id}",
+                    headers=self._ucp_headers(b""),
+                )
                 r.raise_for_status()
                 p = r.json()
         except httpx.HTTPError as e:
@@ -295,13 +337,14 @@ class ShoppingSession:
             return json.dumps({"error": "Cart is empty. Add items first."})
 
         payload = self._build_checkout_payload()
+        body_bytes = _canonical_json_bytes(payload)
         self._log("info", "Creating checkout session…")
         try:
             with httpx.Client(timeout=15.0) as c:
                 r = c.post(
                     f"{self.merchant_base_url}/checkout-sessions",
-                    json=payload,
-                    headers=self._ucp_headers(),
+                    content=body_bytes,
+                    headers={**self._ucp_headers(body_bytes), "Content-Type": "application/json"},
                 )
                 r.raise_for_status()
                 checkout_data = r.json()
@@ -329,11 +372,17 @@ class ShoppingSession:
         if not self.checkout_session_id:
             return json.dumps({"error": "No active checkout session. Call checkout() first."})
         self._log("info", "Submitting payment…")
+        body_bytes = b"{}"
         try:
             with httpx.Client(timeout=20.0) as c:
                 r = c.post(
                     f"{self.merchant_base_url}/checkout-sessions/{self.checkout_session_id}/complete",
-                    headers={**self._ucp_headers(), "X-PAYMENT": x_payment},
+                    content=body_bytes,
+                    headers={
+                        **self._ucp_headers(body_bytes),
+                        "X-PAYMENT": x_payment,
+                        "Content-Type": "application/json",
+                    },
                 )
                 if r.status_code == 402:
                     body = r.json()
@@ -346,10 +395,10 @@ class ShoppingSession:
         self._log("info", "Order confirmed!")
         return json.dumps({"_ui": {"type": "order-confirmation"}, "order": result})
 
-    def checkout_and_pay(self) -> str:
-        """Create checkout session AND autonomously sign+submit x402 (agent flow).
+    def autonomous_checkout_request_payment(self) -> str:
+        """Create checkout session and fetch x402 payment requirements (HTTP 402) from merchant.
 
-        Signs the EIP-3009 USDC transfer with the agent's private key.
+        Autonomous agent flow — call submit_payment next with the returned checkout_session_id.
         """
         err = self._require_merchant()
         if err:
@@ -358,84 +407,136 @@ class ShoppingSession:
             return json.dumps({"error": "Cart is empty. Add items first."})
 
         payload = self._build_checkout_payload()
-        self._log("info", "Creating checkout session…")
+        body_bytes = _canonical_json_bytes(payload)
+        self._log("info", "Creating checkout session (autonomous x402 step 1)…")
         try:
             with httpx.Client(timeout=15.0) as c:
                 r = c.post(
                     f"{self.merchant_base_url}/checkout-sessions",
-                    json=payload,
-                    headers=self._ucp_headers(),
+                    content=body_bytes,
+                    headers={**self._ucp_headers(body_bytes), "Content-Type": "application/json"},
                 )
                 r.raise_for_status()
                 checkout_data = r.json()
         except httpx.HTTPError as e:
             return json.dumps({"error": f"Checkout creation failed: {e}"})
 
-        self.checkout_session_id = checkout_data.get("id")
+        sid = checkout_data.get("id")
+        self.checkout_session_id = sid
         totals = checkout_data.get("totals", [])
         total_cents = next((t.get("amount", 0) for t in totals if t.get("type") == "total"), 0)
 
-        merchant_wallet = self._merchant_wallet()
-        amount_micro_usdc = total_cents * 10_000  # cents → USDC micro-units
+        complete_body = b"{}"
+        try:
+            with httpx.Client(timeout=10.0) as c:
+                probe = c.post(
+                    f"{self.merchant_base_url}/checkout-sessions/{sid}/complete",
+                    content=complete_body,
+                    headers={**self._ucp_headers(complete_body), "Content-Type": "application/json"},
+                )
+        except httpx.HTTPError as e:
+            return json.dumps({"error": f"Could not request payment requirements: {e}"})
 
-        # Probe 402 if merchant wallet not in discovery profile
-        if not merchant_wallet:
-            try:
-                with httpx.Client(timeout=10.0) as c:
-                    probe = c.post(
-                        f"{self.merchant_base_url}/checkout-sessions/{self.checkout_session_id}/complete",
-                        headers=self._ucp_headers(),
-                    )
-                    if probe.status_code == 402:
-                        body = probe.json()
-                        # FastAPI wraps HTTPException detail in {"detail": ...}
-                        payment_required = body.get("detail", body)
-                        accepts = payment_required.get("accepts", [])
-                        if accepts:
-                            merchant_wallet = accepts[0].get("payTo")
-                            req_amount = accepts[0].get("amount") or accepts[0].get("maxAmountRequired")
-                            if req_amount:
-                                amount_micro_usdc = int(req_amount)
-            except Exception as exc:
-                log.warning("Payment probe failed: %s", exc)
-
-        if not merchant_wallet:
+        if probe.status_code != 402:
             return json.dumps({
-                "error": "Could not determine merchant wallet address for x402 payment.",
-                "checkout_session_id": self.checkout_session_id,
-                "order_total_cents": total_cents,
+                "error": "Expected HTTP 402 Payment Required from merchant complete endpoint.",
+                "status_code": probe.status_code,
+                "checkout_session_id": sid,
+                "hint": "Ensure merchant has MERCHANT_WALLET or discovery wallet configured for x402.",
             })
 
-        self._log("info", f"Signing x402 payment: {amount_micro_usdc / 1_000_000:.2f} USDC → {merchant_wallet[:10]}…")
+        body = probe.json()
+        payment_required = body.get("detail", body)
+        if not isinstance(payment_required, dict):
+            return json.dumps({"error": "Malformed 402 response", "checkout_session_id": sid})
+
+        accepts = payment_required.get("accepts") or []
+        if not accepts:
+            return json.dumps({"error": "402 response missing accepts[]", "checkout_session_id": sid})
+
+        accepts_entry = accepts[0]
+        pay_to = accepts_entry.get("payTo")
+        amount_micro = accepts_entry.get("amount") or accepts_entry.get("maxAmountRequired")
+        if not pay_to or amount_micro is None:
+            return json.dumps({"error": "Invalid accepts[0] entry (payTo/amount)", "checkout_session_id": sid})
+
+        self._x402_requirements[sid] = {
+            "accepts_entry": accepts_entry,
+            "total_cents": total_cents,
+        }
+
+        self._log("info", f"x402: pay {int(amount_micro) / 1_000_000:.2f} USDC → {pay_to[:10]}…")
+        return json.dumps({
+            "x402": "payment_required",
+            "checkout_session_id": sid,
+            "order_total_cents": total_cents,
+            "pay_to": pay_to,
+            "amount_micro_usdc": str(amount_micro),
+            "network": accepts_entry.get("network"),
+            "asset": accepts_entry.get("asset"),
+            "message": "Call submit_payment with this checkout_session_id to sign and complete payment.",
+        })
+
+    def submit_payment(self, checkout_session_id: str) -> str:
+        """Sign x402 EIP-3009 payload and POST complete with X-PAYMENT (autonomous agent step 2)."""
+        err = self._require_merchant()
+        if err:
+            return json.dumps(err)
+
+        req = self._x402_requirements.get(checkout_session_id)
+        if not req:
+            return json.dumps({
+                "error": "No stored payment requirements for this session. Call checkout first.",
+                "checkout_session_id": checkout_session_id,
+            })
+
+        accepts_entry = req["accepts_entry"]
+        pay_to = accepts_entry.get("payTo")
+        raw_amt = accepts_entry.get("amount") or accepts_entry.get("maxAmountRequired")
+        if not pay_to or raw_amt is None:
+            return json.dumps({"error": "Stored payment requirements incomplete", "checkout_session_id": checkout_session_id})
+        amount_micro_usdc = int(str(raw_amt))
+
+        self._log(
+            "info",
+            f"Signing x402 payment: {amount_micro_usdc / 1_000_000:.2f} USDC → {pay_to[:10]}…",
+        )
         try:
             if self._agent_private_key:
-                x_payment = build_x_payment_with_key(self._agent_private_key, merchant_wallet, amount_micro_usdc)
+                x_payment = build_x_payment_with_key(self._agent_private_key, pay_to, amount_micro_usdc)
             else:
-                x_payment = build_x_payment(merchant_wallet, amount_micro_usdc)
+                x_payment = build_x_payment(pay_to, amount_micro_usdc)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
 
+        body_bytes = b"{}"
         try:
             with httpx.Client(timeout=20.0) as c:
                 r = c.post(
-                    f"{self.merchant_base_url}/checkout-sessions/{self.checkout_session_id}/complete",
-                    headers={**self._ucp_headers(), "X-PAYMENT": x_payment},
+                    f"{self.merchant_base_url}/checkout-sessions/{checkout_session_id}/complete",
+                    content=body_bytes,
+                    headers={
+                        **self._ucp_headers(body_bytes),
+                        "X-PAYMENT": x_payment,
+                        "Content-Type": "application/json",
+                    },
                 )
                 if r.status_code == 402:
-                    body = r.json()
-                    detail = body.get("detail", body)
+                    b = r.json()
+                    detail = b.get("detail", b)
                     return json.dumps({"error": "Payment rejected by merchant.", "detail": detail})
                 r.raise_for_status()
                 result = r.json()
         except httpx.HTTPError as e:
             return json.dumps({"error": f"Complete checkout failed: {e}"})
 
+        del self._x402_requirements[checkout_session_id]
         self._log("info", f"Order confirmed! Paid {amount_micro_usdc / 1_000_000:.2f} USDC")
         return json.dumps({
             "success": True,
             "order": result,
             "paid_usdc": amount_micro_usdc / 1_000_000,
-            "merchant_wallet": merchant_wallet,
+            "merchant_wallet": pay_to,
             "agent_wallet": self._agent_address(),
             "agent_erc8004_id": self.agent_id,
         })

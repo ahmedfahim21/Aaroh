@@ -1,14 +1,13 @@
+import { agentBackendHeaders, AGENT_URL } from "@/lib/agent-backend";
 import { NextRequest } from "next/server";
-
-const AGENT_URL = process.env.AGENT_URL ?? "http://localhost:8004";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ taskId: string }> },
+  { params }: { params: Promise<{ taskId: string }> }
 ) {
   const { taskId } = await params;
   const upstream = await fetch(`${AGENT_URL}/tasks/${taskId}/events`, {
-    headers: { Accept: "text/event-stream" },
+    headers: { Accept: "text/event-stream", ...agentBackendHeaders(false) },
     cache: "no-store",
   });
 

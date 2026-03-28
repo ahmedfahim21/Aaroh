@@ -20,3 +20,5 @@ web/frontend/dist/
 
 node_modules/
 deploy/
+
+.agent_keys.json

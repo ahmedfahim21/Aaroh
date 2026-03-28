@@ -14,8 +14,14 @@ interface TaskInteractionProps {
 // Human-readable tool labels
 function toolLabel(tool: string, args: Record<string, unknown>): string {
   switch (tool) {
+    case "list_merchants":
+      return args.category
+        ? `Listing merchants (filter: ${args.category})`
+        : "Listing merchants";
+    case "find_merchant":
+      return args.query ? `Finding merchant — "${args.query}"` : "Finding merchant";
     case "discover_merchant":
-      return `Discovering merchant${args.url ? ` at ${args.url}` : ""}`;
+      return `Discovering merchant${args.merchant_url ? ` at ${args.merchant_url}` : ""}`;
     case "browse_categories":
       return "Browsing categories";
     case "search_products":
@@ -32,8 +38,10 @@ function toolLabel(tool: string, args: Record<string, unknown>): string {
       return `Updating cart — ${args.product_id}`;
     case "remove_from_cart":
       return `Removing from cart — ${args.product_id}`;
-    case "checkout_and_pay":
-      return "Checking out and paying via x402";
+    case "checkout":
+      return "Creating checkout — fetching x402 payment requirements";
+    case "submit_payment":
+      return "Signing and submitting x402 payment";
     default:
       return tool;
   }

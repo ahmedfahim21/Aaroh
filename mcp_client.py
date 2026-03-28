@@ -2,7 +2,8 @@
 """
 MCP shopping client: discover any UCP merchant and browse, cart, checkout via tools.
 
-Set MERCHANT_URL to connect to a merchant, or use discover_merchant(url) first.
+Configure MERCHANT_URL and/or MERCHANT_URLS (comma-separated base URLs) for list_merchants /
+find_merchant, or use discover_merchant(url) with a known base URL.
 
 Checkout flow (x402 crypto payments):
   1. checkout()                  – creates a session; returns wallet_address + order_total
@@ -11,15 +12,9 @@ Checkout flow (x402 crypto payments):
   3. complete_checkout(x_payment) – posts the signed payment; returns order confirmation
 """
 
-import concurrent.futures
-import json
-import os
-import re
-from typing import Any
-
-import httpx
 from mcp.server.fastmcp import FastMCP
 
+from shopping.merchant_discovery import find_merchant_json, list_merchants_json
 from shopping.session import ShoppingSession
 
 mcp = FastMCP(
@@ -31,58 +26,6 @@ mcp = FastMCP(
 _session = ShoppingSession()
 
 
-# ── Merchant discovery helpers ────────────────────────────────────────────────
-
-
-def _probe_merchant(url: str) -> dict[str, Any] | None:
-    """Probe a single URL for a UCP discovery profile. Returns None on any failure.
-
-    Uses aggressive timeouts (connect=1s, read=3s) so parallel port scanning
-    across 10 candidates completes in at most ~3 seconds wall-clock time.
-    """
-    url = url.rstrip("/")
-    try:
-        timeout = httpx.Timeout(connect=1.0, read=3.0, write=1.0, pool=1.0)
-        with httpx.Client(timeout=timeout) as client:
-            r = client.get(f"{url}/.well-known/ucp")
-            r.raise_for_status()
-            profile = r.json()
-    except Exception:
-        return None
-    # Must look like a UCP profile — avoids false positives from other HTTP services
-    if not isinstance(profile.get("ucp"), dict):
-        return None
-    merchant = profile.get("merchant") or {}
-    cats_raw: str = merchant.get("product_categories", "") or ""
-    categories = [c.strip() for c in cats_raw.split(",") if c.strip()]
-    handlers = profile.get("payment", {}).get("handlers", [])
-    return {
-        "name": merchant.get("name", url),
-        "url": url,
-        "product_categories": categories,
-        "payment_handler_ids": [h.get("id", "") for h in handlers if h.get("id")],
-    }
-
-
-def _candidate_urls() -> list[str]:
-    """Build the deduplicated list of merchant URLs to probe.
-
-    Sources (in priority order):
-    1. MERCHANT_URLS env var — comma/space-separated base URLs
-    2. Fallback: localhost:8000–8009
-    Always includes the currently connected merchant if set.
-    """
-    raw_env = os.environ.get("MERCHANT_URLS", "").strip()
-    if raw_env:
-        urls = [u.rstrip("/") for u in re.split(r"[,\s]+", raw_env) if u.strip()]
-    else:
-        urls = [f"http://localhost:{port}" for port in range(8000, 8010)]
-    url_set: set[str] = set(urls)
-    if _session.merchant_base_url:
-        url_set.add(_session.merchant_base_url)
-    return list(url_set)
-
-
 # ── Tools ─────────────────────────────────────────────────────────────────────
 
 
@@ -90,7 +33,7 @@ def _candidate_urls() -> list[str]:
 def discover_merchant(merchant_url: str) -> str:
     """Connect to a UCP merchant by URL. Fetches /.well-known/ucp and stores the merchant for browsing and checkout.
 
-    Call this first with the merchant's base URL (e.g. http://localhost:8000).
+    Call this after list_merchants / find_merchant, or when you already know the base URL.
     """
     return _session.discover_merchant(merchant_url)
 
@@ -139,49 +82,19 @@ def remove_from_cart(product_id: str) -> str:
 
 @mcp.tool()
 def list_merchants(category: str | None = None) -> str:
-    """Discover running UCP merchants without knowing their URLs upfront.
+    """Discover UCP merchants configured via MERCHANT_URL / MERCHANT_URLS (probes /.well-known/ucp).
 
-    Reads MERCHANT_URLS environment variable (comma- or space-separated base URLs).
-    If not set, scans localhost ports 8000–8009. Also includes the currently
-    connected merchant if one is active.
+    Also includes the currently connected merchant URL if any.
 
     Args:
-        category: Optional keyword filter. Only merchants whose product_categories
-                  contains this substring (case-insensitive) are returned.
-                  Pass None to list all discovered merchants.
+        category: Optional keyword filter on product_categories from discovery profiles.
     """
-    urls = _candidate_urls()
-    results: list[dict[str, Any]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(urls), 1)) as pool:
-        for result in pool.map(_probe_merchant, urls):
-            if result is not None:
-                results.append(result)
-
-    if category:
-        q = category.lower()
-        results = [r for r in results if q in ", ".join(r["product_categories"]).lower()]
-
-    results.sort(key=lambda r: r["name"].lower())
-
-    response: dict[str, Any] = {"merchants": results, "count": len(results)}
-    if category:
-        response["filtered_by"] = category
-    if not results:
-        response["message"] = (
-            f"No merchants found matching '{category}'."
-            if category
-            else "No running UCP merchants found. Set MERCHANT_URLS or start a merchant server on localhost:8000–8009."
-        )
-    return json.dumps(response)
+    return list_merchants_json(category, connected_base_url=_session.merchant_base_url)
 
 
 @mcp.tool()
 def find_merchant(query: str) -> str:
-    """Find and auto-connect to a UCP merchant by name or product category.
-
-    Probes all known/configured merchant URLs (same as list_merchants) and
-    matches the query against both merchant name and product categories
-    (case-insensitive substring).
+    """Find and auto-connect to a UCP merchant by name or product category (see list_merchants).
 
     - Exactly 1 match: auto-connects via discover_merchant(url).
     - 0 matches: returns error with all discovered merchants listed.
@@ -190,38 +103,11 @@ def find_merchant(query: str) -> str:
     Args:
         query: Search term, e.g. "candles", "artisan", "home decor".
     """
-    urls = _candidate_urls()
-    all_results: list[dict[str, Any]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(urls), 1)) as pool:
-        for result in pool.map(_probe_merchant, urls):
-            if result is not None:
-                all_results.append(result)
-    all_results.sort(key=lambda r: r["name"].lower())
-
-    q = query.lower()
-    matches = [
-        r for r in all_results
-        if q in r["name"].lower() or q in ", ".join(r["product_categories"]).lower()
-    ]
-
-    if len(matches) == 1:
-        return discover_merchant(matches[0]["url"])
-
-    def _slim(r: dict[str, Any]) -> dict[str, Any]:
-        return {"name": r["name"], "url": r["url"], "product_categories": r["product_categories"]}
-
-    if len(matches) == 0:
-        return json.dumps({
-            "error": f"No merchants found matching '{query}'.",
-            "all_merchants": [_slim(r) for r in all_results],
-            "suggestion": "Call discover_merchant(url) with a URL above, or try list_merchants().",
-        })
-
-    return json.dumps({
-        "error": f"Multiple merchants match '{query}'. Please choose one.",
-        "matches": [_slim(r) for r in matches],
-        "suggestion": "Call discover_merchant(url) with the URL of your preferred merchant.",
-    })
+    return find_merchant_json(
+        query,
+        discover_merchant,
+        connected_base_url=_session.merchant_base_url,
+    )
 
 
 @mcp.tool()

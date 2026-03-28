@@ -189,6 +189,7 @@ export type Merchant = InferSelectModel<typeof merchant>;
 
 export const agent = pgTable("Agent", {
   id: uuid("id").primaryKey().notNull(),
+  userId: text("userId").notNull(),
   name: text("name").notNull(),
   instructions: text("instructions").notNull().default(""),
   walletAddress: text("walletAddress").notNull(),

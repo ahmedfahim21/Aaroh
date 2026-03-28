@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { agent, agentSession } from "./schema";
@@ -12,6 +12,7 @@ const db = drizzle(client);
 
 export async function createAgent(data: {
   id: string;
+  userId: string;
   name: string;
   instructions: string;
   walletAddress: string;
@@ -25,17 +26,33 @@ export async function updateAgentErc8004Id(id: string, erc8004Id: string): Promi
   await db.update(agent).set({ erc8004Id }).where(eq(agent.id, id));
 }
 
-export async function listAgents(): Promise<Agent[]> {
-  return db.select().from(agent).orderBy(agent.createdAt);
+export async function listAgentsForUser(userId: string): Promise<Agent[]> {
+  return db
+    .select()
+    .from(agent)
+    .where(eq(agent.userId, userId))
+    .orderBy(agent.createdAt);
 }
 
-export async function getAgentById(id: string): Promise<Agent | undefined> {
+/** When userId is provided, only return the row if it belongs to that user. */
+export async function getAgentById(id: string, userId?: string): Promise<Agent | undefined> {
+  if (userId) {
+    const [row] = await db
+      .select()
+      .from(agent)
+      .where(and(eq(agent.id, id), eq(agent.userId, userId)));
+    return row;
+  }
   const [row] = await db.select().from(agent).where(eq(agent.id, id));
   return row;
 }
 
-export async function deleteAgent(id: string): Promise<void> {
-  await db.delete(agent).where(eq(agent.id, id));
+export async function deleteAgentForUser(id: string, userId: string): Promise<Agent | undefined> {
+  const [row] = await db
+    .delete(agent)
+    .where(and(eq(agent.id, id), eq(agent.userId, userId)))
+    .returning();
+  return row;
 }
 
 export async function createSession(data: {
