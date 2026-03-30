@@ -1,7 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { NextResponse } from "next/server";
-import { createMerchant, listMerchants } from "@/lib/db/queries-merchants";
+import { getSessionUser } from "@/lib/auth-helpers";
+import {
+  createMerchant,
+  listMerchantsByOwner,
+} from "@/lib/db/queries-merchants";
 import { runningProcesses } from "@/lib/merchant-processes";
 
 const REPO_ROOT = resolve(process.cwd(), "..");
@@ -29,59 +33,39 @@ export interface MerchantInfo {
 }
 
 export async function GET() {
-  // Filesystem merchants (deployed)
-  const fsMerchants: MerchantInfo[] = [];
-  if (existsSync(DEPLOY_DIR)) {
-    const entries = readdirSync(DEPLOY_DIR, { withFileTypes: true }).filter(
-      (e) => e.isDirectory()
-    );
-    for (const entry of entries) {
-      const slug = entry.name;
-      const dir = join(DEPLOY_DIR, slug);
-      const profilePath = join(dir, "discovery_profile.json");
+  const user = await getSessionUser();
+  if (!user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let dbMerchants: MerchantInfo[] = [];
+  try {
+    const rows = await listMerchantsByOwner(user.id);
+    dbMerchants = rows.map((m) => {
+      const proc = runningProcesses.get(m.slug);
+      const dir = join(DEPLOY_DIR, m.slug);
       const productsDb = join(dir, "data", "products.db");
+      let name = m.name;
+      let categories = parseCommaSeparated(m.categories);
 
-      let name = slug;
-      let categories: string[] = [];
-
+      const profilePath = join(dir, "discovery_profile.json");
       if (existsSync(profilePath)) {
         try {
           const profile = JSON.parse(readFileSync(profilePath, "utf-8"));
-          name = profile?.merchant?.name ?? slug;
-          const cats = profile?.merchant?.product_categories ?? "";
-          categories = parseCommaSeparated(cats);
+          name = profile?.merchant?.name ?? m.name;
+          const cats = profile?.merchant?.product_categories ?? m.categories;
+          categories = parseCommaSeparated(
+            typeof cats === "string" ? cats : m.categories
+          );
         } catch {
           /* ignore invalid discovery_profile.json */
         }
       }
 
-      const proc = runningProcesses.get(slug);
-      fsMerchants.push({
-        slug,
-        name,
-        categories,
-        tags: [],
-        description: "",
-        hasProducts: existsSync(productsDb),
-        running: !!proc,
-        port: proc?.port ?? null,
-        startedAt: proc?.startedAt ?? null,
-      });
-    }
-  }
-
-  // DB merchants (onboarded via UI)
-  let dbMerchants: MerchantInfo[] = [];
-  try {
-    const rows = await listMerchants();
-    dbMerchants = rows.map((m) => {
-      const proc = runningProcesses.get(m.slug);
-      const dir = join(DEPLOY_DIR, m.slug);
-      const productsDb = join(dir, "data", "products.db");
       return {
         slug: m.slug,
-        name: m.name,
-        categories: parseCommaSeparated(m.categories),
+        name,
+        categories,
         tags: parseCommaSeparated(m.tags),
         description: m.description ?? "",
         hasProducts: existsSync(productsDb),
@@ -91,20 +75,21 @@ export async function GET() {
       };
     });
   } catch {
-    // DB might not be available yet; fall through
+    return NextResponse.json(
+      { error: "Failed to load merchants." },
+      { status: 500 }
+    );
   }
 
-  // Merge: DB entries take precedence, FS-only entries appended
-  const seen = new Set(dbMerchants.map((m) => m.slug));
-  const merged = [
-    ...dbMerchants,
-    ...fsMerchants.filter((m) => !seen.has(m.slug)),
-  ];
-
-  return NextResponse.json(merged);
+  return NextResponse.json(dbMerchants);
 }
 
 export async function POST(req: Request) {
+  const user = await getSessionUser();
+  if (!user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json();
   const { slug, name, walletAddress, categories, tags, description } = body;
   if (!slug || !name || !walletAddress) {
@@ -118,6 +103,7 @@ export async function POST(req: Request) {
       slug,
       name,
       walletAddress,
+      ownerId: user.id,
       categories: categories ?? "",
       tags: typeof tags === "string" ? tags : "",
       description: typeof description === "string" ? description : "",
@@ -125,7 +111,7 @@ export async function POST(req: Request) {
     return NextResponse.json(created, { status: 201 });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("unique")) {
+    if (msg.includes("unique") || msg.includes("duplicate")) {
       return NextResponse.json(
         { error: "Merchant slug already exists" },
         { status: 409 }

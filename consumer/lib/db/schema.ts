@@ -179,6 +179,7 @@ export const merchant = pgTable("Merchant", {
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   walletAddress: text("walletAddress").notNull(),
+  ownerId: uuid("ownerId").references(() => user.id),
   categories: text("categories").notNull().default(""),
   tags: text("tags").notNull().default(""),
   description: text("description").notNull().default(""),

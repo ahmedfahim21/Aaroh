@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth-helpers";
+import { upsertMerchantForOwner } from "@/lib/db/queries-merchants";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +36,11 @@ async function xlsxToCsvBuffer(buffer: Buffer): Promise<Buffer<ArrayBuffer>> {
 export async function POST(req: Request) {
   let tmpPath: string | null = null;
   try {
+    const user = await getSessionUser();
+    if (!user?.id) {
+      return NextResponse.json({ detail: "Unauthorized." }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const merchantName = (
       formData.get("merchant_name") as string | null
@@ -96,6 +103,33 @@ export async function POST(req: Request) {
       { cwd: REPO_ROOT }
     );
 
+    const tags = (formData.get("tags") as string | null)?.trim() ?? "";
+    const description =
+      (formData.get("description") as string | null)?.trim() ?? "";
+
+    try {
+      await upsertMerchantForOwner({
+        slug,
+        name: merchantName,
+        walletAddress: merchantWallet,
+        ownerId: user.id,
+        categories: "",
+        tags,
+        description,
+      });
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message === "SLUG_TAKEN") {
+        return NextResponse.json(
+          {
+            detail:
+              "This merchant slug is already registered to another account.",
+          },
+          { status: 409 }
+        );
+      }
+      throw e;
+    }
+
     return NextResponse.json({
       status: "ok",
       slug,
@@ -113,7 +147,9 @@ export async function POST(req: Request) {
     if (tmpPath) {
       try {
         rmSync(tmpPath);
-      } catch {}
+      } catch {
+        /* best-effort temp file cleanup */
+      }
     }
   }
 }
