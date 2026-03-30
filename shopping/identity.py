@@ -38,7 +38,7 @@ def _apply_eip1559_fees(w3, tx: dict) -> None:
             pending_block = w3.eth.get_block("pending")
             base_fee = pending_block.get("baseFeePerGas")
             if base_fee is not None:
-                tx["maxFeePerGas"] = int(base_fee) + 2 * int(tx["maxPriorityFeePerGas"])
+                tx["maxFeePerGas"] = 2 * int(base_fee) + int(tx["maxPriorityFeePerGas"])
             else:
                 tx["maxFeePerGas"] = int(w3.eth.gas_price) * 2
         except Exception:
@@ -336,9 +336,9 @@ def register_with_data_uri(private_key_hex: str, data_uri: str) -> int | None:
                 log.warning("EIP-8004: eth_call after estimate_gas failure: %s", call_exc)
             return None
 
-        if "maxFeePerGas" in tx or "maxPriorityFeePerGas" in tx:
+        try:
             _apply_eip1559_fees(w3, tx)
-        else:
+        except Exception:
             tx["gasPrice"] = w3.eth.gas_price
         signed_tx = w3.eth.account.sign_transaction(tx, account.key)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
@@ -425,9 +425,9 @@ def set_agent_uri(private_key_hex: str, agent_id: int, data_uri: str) -> bool:
             "chainId": BASE_SEPOLIA_CHAIN_ID,
         })
         tx["gas"] = w3.eth.estimate_gas(tx)
-        if "maxFeePerGas" in tx or "maxPriorityFeePerGas" in tx:
+        try:
             _apply_eip1559_fees(w3, tx)
-        else:
+        except Exception:
             tx["gasPrice"] = w3.eth.gas_price
         signed_tx = w3.eth.account.sign_transaction(tx, account.key)
         tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
@@ -509,9 +509,9 @@ def get_or_register_eip8004_identity() -> int | None:
             "chainId": BASE_SEPOLIA_CHAIN_ID,
         })
         tx["gas"] = w3.eth.estimate_gas(tx)
-        if "maxFeePerGas" in tx or "maxPriorityFeePerGas" in tx:
+        try:
             _apply_eip1559_fees(w3, tx)
-        else:
+        except Exception:
             tx["gasPrice"] = w3.eth.gas_price
 
         signed_tx = w3.eth.account.sign_transaction(tx, account.key)
@@ -570,9 +570,9 @@ def register_with_key(private_key_hex: str) -> int | None:
             "chainId": BASE_SEPOLIA_CHAIN_ID,
         })
         tx["gas"] = w3.eth.estimate_gas(tx)
-        if "maxFeePerGas" in tx or "maxPriorityFeePerGas" in tx:
+        try:
             _apply_eip1559_fees(w3, tx)
-        else:
+        except Exception:
             tx["gasPrice"] = w3.eth.gas_price
 
         signed_tx = w3.eth.account.sign_transaction(tx, account.key)

@@ -108,6 +108,38 @@ export async function getAgentById(id: string, userId?: string): Promise<Agent |
   return row;
 }
 
+export async function getAgentDetailById(
+  id: string,
+  userId: string
+): Promise<(Agent & { rating: { liked: number; disliked: number } }) | undefined> {
+  const [row] = await db
+    .select({
+      id: agent.id,
+      userId: agent.userId,
+      name: agent.name,
+      instructions: agent.instructions,
+      walletAddress: agent.walletAddress,
+      erc8004Id: agent.erc8004Id,
+      createdAt: agent.createdAt,
+      liked: sql<number>`(
+        select count(*)::int
+        from ${agentSession}
+        where ${agentSession.agentId} = ${agent.id} and ${agentSession.rating} = true
+      )`,
+      disliked: sql<number>`(
+        select count(*)::int
+        from ${agentSession}
+        where ${agentSession.agentId} = ${agent.id} and ${agentSession.rating} = false
+      )`,
+    })
+    .from(agent)
+    .where(and(eq(agent.id, id), eq(agent.userId, userId)));
+
+  if (!row) return undefined;
+  const { liked, disliked, ...rest } = row;
+  return { ...rest, rating: { liked: liked ?? 0, disliked: disliked ?? 0 } };
+}
+
 export async function deleteAgentForUser(id: string, userId: string): Promise<Agent | undefined> {
   const [row] = await db
     .delete(agent)

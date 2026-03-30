@@ -11,6 +11,15 @@ type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
+async function getActiveChainIdHex(provider: EthereumProvider): Promise<string | null> {
+  try {
+    const res = await provider.request({ method: "eth_chainId" });
+    return typeof res === "string" ? res : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Minimal ABI for ReputationRegistry.giveFeedback (EIP-8004). */
 const REPUTATION_GIVE_FEEDBACK_ABI = [
   {
@@ -51,13 +60,27 @@ export function useReputationFeedback() {
     }
     try {
       const provider = (await wallet.getEthereumProvider()) as EthereumProvider;
+      const before = await getActiveChainIdHex(provider);
       try {
         await provider.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: BASE_SEPOLIA_CHAIN_ID_HEX }],
         });
-      } catch {
-        // ignore
+      } catch (e) {
+        const after = await getActiveChainIdHex(provider);
+        if (after !== BASE_SEPOLIA_CHAIN_ID_HEX) {
+          return {
+            ok: false,
+            error:
+              before && after && before !== after
+                ? `Network switch failed (still on ${after}).`
+                : "Network switch failed.",
+          };
+        }
+      }
+      const active = await getActiveChainIdHex(provider);
+      if (active !== BASE_SEPOLIA_CHAIN_ID_HEX) {
+        return { ok: false, error: "Wrong network selected." };
       }
 
       const value = liked ? 100n : 0n;

@@ -79,7 +79,7 @@ export function AgentDetailView({ agent: initialAgent }: AgentDetailViewProps) {
   }, [sessions, selectedSession?.id]);
 
   const ethNum = ethBalance != null ? Number.parseFloat(ethBalance) : 0;
-  const hasEthForGas = ethNum > 0.00005;
+  const hasEthForGas = ethNum > 0.0005;
   const registered = Boolean(agent.erc8004Id);
   const explorerAddress = `${BASE_SEPOLIA_EXPLORER}/address/${agent.walletAddress}`;
   const nftHref =
