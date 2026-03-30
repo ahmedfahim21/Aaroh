@@ -1,6 +1,10 @@
 import { auth } from "@/app/(auth)/auth";
 import { agentBackendHeaders, AGENT_URL } from "@/lib/agent-backend";
-import { deleteAgentForUser, getAgentById } from "@/lib/db/queries-agents";
+import {
+  deleteAgentForUser,
+  getAgentById,
+  getSessionRatingSummary,
+} from "@/lib/db/queries-agents";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -16,7 +20,8 @@ export async function GET(
   if (!ag) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json(ag);
+  const rating = await getSessionRatingSummary(id);
+  return NextResponse.json({ ...ag, rating });
 }
 
 export async function DELETE(

@@ -4,12 +4,12 @@ import { useState } from "react";
 import useSWR from "swr";
 import { AgentCard } from "./agent-card";
 import { CreateAgentDialog } from "./create-agent-dialog";
-import type { Agent } from "@/lib/db/schema";
+import type { AgentWithStats } from "@/lib/db/schema";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export function AgentsGrid() {
-  const { data: agents, mutate } = useSWR<Agent[]>("/api/agents", fetcher);
+  const { data: agents, mutate } = useSWR<AgentWithStats[]>("/api/agents", fetcher);
   const [createOpen, setCreateOpen] = useState(false);
 
   if (!agents) {

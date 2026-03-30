@@ -9,7 +9,7 @@ import time
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
-USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCf7e"
+USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 BASE_SEPOLIA_CHAIN_ID = 84532
 
 # Legacy aliases — keep so any existing imports don't break

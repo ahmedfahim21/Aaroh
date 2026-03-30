@@ -199,6 +199,13 @@ export const agent = pgTable("Agent", {
 
 export type Agent = InferSelectModel<typeof agent>;
 
+/** Agent row with aggregates from list API (client-safe type). */
+export type AgentWithStats = Agent & {
+  sessionCount: number;
+  ratingLiked: number;
+  ratingDisliked: number;
+};
+
 export const agentSession = pgTable("AgentSession", {
   id: text("id").primaryKey().notNull(),
   agentId: uuid("agentId")
@@ -209,6 +216,8 @@ export const agentSession = pgTable("AgentSession", {
     .notNull()
     .default("running"),
   result: text("result"),
+  /** null = unrated, true = like, false = dislike */
+  rating: boolean("rating"),
   events: json("events")
     .$type<Record<string, unknown>[]>()
     .notNull()

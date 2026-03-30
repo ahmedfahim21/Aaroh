@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { auth } from "@/app/(auth)/auth";
-import { getAgentById } from "@/lib/db/queries-agents";
+import { getAgentById, getSessionRatingSummary } from "@/lib/db/queries-agents";
 import { AgentDetailView } from "@/components/agents/agent-detail-view";
 
 export default async function AgentDetailPage({
@@ -15,5 +15,6 @@ export default async function AgentDetailPage({
   const { id } = await params;
   const agent = await getAgentById(id, session.user.id);
   if (!agent) notFound();
-  return <AgentDetailView agent={agent} />;
+  const rating = await getSessionRatingSummary(id);
+  return <AgentDetailView agent={{ ...agent, rating }} />;
 }

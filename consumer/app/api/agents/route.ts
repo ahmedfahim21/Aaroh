@@ -1,6 +1,6 @@
 import { auth } from "@/app/(auth)/auth";
 import { agentBackendHeaders, AGENT_URL } from "@/lib/agent-backend";
-import { createAgent, listAgentsForUser } from "@/lib/db/queries-agents";
+import { createAgent, listAgentsWithStatsForUser } from "@/lib/db/queries-agents";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -8,7 +8,7 @@ export async function GET() {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const agents = await listAgentsForUser(session.user.id);
+  const agents = await listAgentsWithStatsForUser(session.user.id);
   return NextResponse.json(agents);
 }
 
@@ -33,7 +33,11 @@ export async function POST(req: Request) {
     const res = await fetch(`${AGENT_URL}/agents`, {
       method: "POST",
       headers: agentBackendHeaders(),
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({
+        id,
+        name: name.trim(),
+        instructions: typeof instructions === "string" ? instructions.trim() : "",
+      }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { detail?: string; error?: string };

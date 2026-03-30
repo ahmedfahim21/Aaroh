@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ExternalLinkIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, ExternalLinkIcon, Loader2 } from "lucide-react";
 import {
   lineItemsFromPurchase,
   totalCentsFromPurchase,
@@ -9,13 +9,21 @@ import {
   txUrlFromPurchase,
 } from "@/lib/checkout-receipt";
 import { useTaskSSE, type AgentEvent } from "@/hooks/use-task-sse";
+import { useReputationFeedback } from "@/hooks/use-reputation-feedback";
+import { useTxVerification } from "@/hooks/use-tx-verification";
+import { ThumbDownIcon, ThumbUpIcon } from "@/components/icons";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface TaskInteractionProps {
+  agentId: string;
+  erc8004AgentId: number | null;
   taskId: string;
   task: string;
   initialStatus: string;
+  initialRating?: boolean | null;
   eventsUrl?: string;
+  onRated?: () => void;
 }
 
 // Human-readable tool labels
@@ -106,6 +114,29 @@ function formatUsdFromCents(cents: number): string {
   return (cents / 100).toFixed(2);
 }
 
+function TxReceiptBadge({ txHash }: { txHash: string }) {
+  const { verified, loading } = useTxVerification(txHash);
+  if (loading) {
+    return (
+      <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" />
+        Verifying on-chain…
+      </p>
+    );
+  }
+  if (verified) {
+    return (
+      <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+        <CheckCircle2 className="size-3.5 shrink-0" />
+        Verified on-chain
+      </p>
+    );
+  }
+  return (
+    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Could not verify transaction receipt.</p>
+  );
+}
+
 /** submit_payment success envelope from the agent (includes nested merchant checkout). */
 function TaskPurchaseSummary({ purchase }: { purchase: Record<string, unknown> }) {
   const txHash = txHashFromPurchase(purchase);
@@ -123,6 +154,7 @@ function TaskPurchaseSummary({ purchase }: { purchase: Record<string, unknown> }
           <p className="text-xs font-medium uppercase tracking-wide opacity-80">Blockchain proof</p>
           <p className="mt-2 text-xs font-medium uppercase tracking-wide opacity-80">Transaction ID</p>
           <p className="mt-0.5 break-all font-mono text-xs opacity-95">{txHash}</p>
+          <TxReceiptBadge txHash={txHash} />
           {txUrl ? (
             <a
               href={txUrl}
@@ -188,9 +220,25 @@ function ThinkingIndicator() {
   );
 }
 
-export function TaskInteraction({ taskId, task, initialStatus, eventsUrl }: TaskInteractionProps) {
+export function TaskInteraction({
+  agentId,
+  erc8004AgentId,
+  taskId,
+  task,
+  initialStatus,
+  initialRating,
+  eventsUrl,
+  onRated,
+}: TaskInteractionProps) {
   const { events, done } = useTaskSSE(taskId, eventsUrl);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { submitFeedback } = useReputationFeedback();
+  const [rating, setRating] = useState<boolean | null>(initialRating ?? null);
+  const [ratingBusy, setRatingBusy] = useState(false);
+
+  useEffect(() => {
+    setRating(initialRating ?? null);
+  }, [taskId, initialRating]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -243,6 +291,38 @@ export function TaskInteraction({ taskId, task, initialStatus, eventsUrl }: Task
   }
 
   const isRunning = status === "running" || (!done && initialStatus === "running");
+
+  const rateSession = useCallback(
+    async (liked: boolean) => {
+      setRatingBusy(true);
+      try {
+        const res = await fetch(`/api/agents/${agentId}/sessions/${taskId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rating: liked ? "up" : "down" }),
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error ?? "Failed to save rating");
+        }
+        setRating(liked);
+        onRated?.();
+        if (erc8004AgentId != null) {
+          const fb = await submitFeedback(erc8004AgentId, liked);
+          if (!fb.ok && fb.error) {
+            toast.message("Saved locally; on-chain reputation skipped", {
+              description: fb.error,
+            });
+          }
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Rating failed");
+      } finally {
+        setRatingBusy(false);
+      }
+    },
+    [agentId, taskId, erc8004AgentId, onRated, submitFeedback]
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -310,6 +390,39 @@ export function TaskInteraction({ taskId, task, initialStatus, eventsUrl }: Task
         {/* Show thinking indicator while running and last event was a tool_result (waiting for next step) */}
         {isRunning && bubbles.length > 0 && bubbles[bubbles.length - 1]?.kind === "tool" && (bubbles[bubbles.length - 1] as { result?: string }).result !== undefined && (
           <ThinkingIndicator />
+        )}
+
+        {status === "done" && (
+          <div className="flex flex-col gap-2 pt-1 border-t border-dashed mt-1">
+            <p className="text-xs text-muted-foreground">Rate this run</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={ratingBusy}
+                onClick={() => rateSession(true)}
+                className={cn(
+                  "inline-flex items-center justify-center rounded-md border p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50",
+                  rating === true && "border-primary bg-primary/10 text-primary"
+                )}
+                title="Good response"
+              >
+                <ThumbUpIcon size={18} />
+              </button>
+              <button
+                type="button"
+                disabled={ratingBusy}
+                onClick={() => rateSession(false)}
+                className={cn(
+                  "inline-flex items-center justify-center rounded-md border p-2 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50",
+                  rating === false && "border-destructive/50 bg-destructive/10 text-destructive"
+                )}
+                title="Poor response"
+              >
+                <ThumbDownIcon size={18} />
+              </button>
+              {ratingBusy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+            </div>
+          </div>
         )}
 
         <div ref={bottomRef} />
