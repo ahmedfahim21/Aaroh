@@ -7,7 +7,9 @@ Endpoints:
     GET  /identity
     GET  /instructions
     POST /instructions          {"instructions": "..."}
-    POST /agents                {"id": "<uuid>"}  → {id, address, erc8004_id}
+    POST /agents                {"id", "name", "instructions"}  → {id, address, erc8004_id: null}
+    GET  /agents/{id}/registration.json
+    POST /agents/{id}/register  → EIP-8004 mint (agent wallet pays gas; fund ETH first)
     GET  /agents/{id}/address
     DELETE /agents/{id}
     POST /shop                  {"task", "consumer_agent_id", ...}
@@ -45,8 +47,18 @@ from pydantic import BaseModel
 
 from shopping.agent_loop import run_shopping_agent
 from shopping.evm import USDC_BASE_SEPOLIA, agent_address
-from shopping.identity import get_or_register_eip8004_identity, register_with_key
-from shopping.keys import delete_agent_key, generate_agent_key, load_agent_private_key
+from shopping.identity import (
+    build_registration_dict,
+    get_or_register_eip8004_identity,
+    register_consumer_agent_eip8004,
+    register_with_key,
+)
+from shopping.keys import (
+    delete_agent_key,
+    generate_agent_key,
+    get_agent_metadata,
+    load_agent_private_key,
+)
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -208,6 +220,8 @@ class InstructionsRequest(BaseModel):
 
 class CreateAgentRequest(BaseModel):
     id: str  # UUID string from consumer app (must match Postgres Agent.id)
+    name: str = ""
+    instructions: str = ""
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -220,20 +234,63 @@ def health() -> dict[str, Any]:
 
 @app.post("/agents")
 def create_consumer_agent(req: CreateAgentRequest) -> dict[str, Any]:
-    """Generate EVM key server-side, optionally register EIP-8004, return public address."""
+    """Generate EVM key server-side; EIP-8004 registration after funding via POST /agents/{id}/register."""
     if load_agent_private_key(req.id):
         raise HTTPException(status_code=409, detail="Agent id already registered on this server")
     try:
-        address, pk = generate_agent_key(req.id)
+        address, _pk = generate_agent_key(req.id, req.name, req.instructions)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    erc8004_id = register_with_key(pk)
     return {
         "id": req.id,
         "address": address,
-        "erc8004_id": erc8004_id,
+        "erc8004_id": None,
     }
+
+
+@app.get("/agents/{agent_id}/registration.json")
+def get_agent_registration_file(agent_id: str) -> dict[str, Any]:
+    """ERC-8004 registration document (same structure as embedded data URI)."""
+    if not load_agent_private_key(agent_id):
+        raise HTTPException(status_code=404, detail="Unknown agent id")
+    meta = get_agent_metadata(agent_id)
+    name = meta.get("name") or "Aaroh Agent"
+    desc = meta.get("instructions") or "Autonomous shopping agent powered by Aaroh"
+    # Without on-chain id we omit registrations or leave empty
+    doc = build_registration_dict(name, desc, on_chain_agent_id=None)
+    return doc
+
+
+@app.post("/agents/{agent_id}/register")
+def register_consumer_agent_on_chain(agent_id: str) -> dict[str, Any]:
+    """Mint EIP-8004 identity with data URI registration (requires agent wallet ETH for gas)."""
+    pk = load_agent_private_key(agent_id)
+    if not pk:
+        raise HTTPException(status_code=404, detail="Unknown agent id")
+
+    # This helps correlate consumer DB `agent_id` with the on-chain signer address.
+    try:
+        signer_address = Account.from_key(pk).address
+    except Exception:
+        signer_address = "<unknown>"
+    meta = get_agent_metadata(agent_id)
+    name = meta.get("name") or "Aaroh Agent"
+    desc = meta.get("instructions") or "Autonomous shopping agent powered by Aaroh"
+    aid = register_consumer_agent_eip8004(pk, name, desc)
+    if aid is None:
+        log.error(
+            "EIP-8004: register failed consumer_agent_id=%s signer=%s ERC8004_IDENTITY_REGISTRY=%s IDENTITY_REGISTRY_RPC=%s",
+            agent_id,
+            signer_address,
+            os.environ.get("ERC8004_IDENTITY_REGISTRY") or None,
+            os.environ.get("IDENTITY_REGISTRY_RPC") or None,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="EIP-8004 registration failed (check ERC8004_IDENTITY_REGISTRY, ETH balance, RPC)",
+        )
+    return {"id": agent_id, "erc8004_id": aid}
 
 
 @app.get("/agents/{agent_id}/address")

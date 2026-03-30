@@ -96,8 +96,22 @@ def _save_store(data: dict) -> None:
     tmp.replace(path)
 
 
-def generate_agent_key(agent_id: str) -> tuple[str, str]:
-    """Generate a new EVM key, encrypt and store under agent_id.
+def _agent_entry_encrypted_pk(entry: dict | str) -> str:
+    """Legacy: value is ciphertext string. New: { pk: ciphertext, name?, instructions? }."""
+    if isinstance(entry, str):
+        return entry
+    pk = entry.get("pk")
+    if isinstance(pk, str):
+        return pk
+    raise ValueError("Invalid agent store entry")
+
+
+def generate_agent_key(
+    agent_id: str,
+    name: str = "",
+    instructions: str = "",
+) -> tuple[str, str]:
+    """Generate a new EVM key, encrypt and store under agent_id with optional metadata.
 
     Returns (checksummed address, private key as 0x-prefixed hex) so callers need not
     reload from disk.
@@ -110,7 +124,11 @@ def generate_agent_key(agent_id: str) -> tuple[str, str]:
 
     with _lock:
         store = _load_store()
-        store["agents"][agent_id] = _encrypt(pk_hex)
+        store["agents"][agent_id] = {
+            "pk": _encrypt(pk_hex),
+            "name": name.strip(),
+            "instructions": instructions.strip(),
+        }
         _save_store(store)
 
     log.info("Stored encrypted key for agent %s → %s", agent_id, addr)
@@ -121,14 +139,28 @@ def load_agent_private_key(agent_id: str) -> str | None:
     """Load and decrypt private key (0x-prefixed hex) for agent_id, or None if missing."""
     with _lock:
         store = _load_store()
-        enc = store["agents"].get(agent_id)
-    if not enc:
+        entry = store["agents"].get(agent_id)
+    if not entry:
         return None
     try:
+        enc = _agent_entry_encrypted_pk(entry)
         return _decrypt(enc)
     except Exception as e:
         log.warning("Failed to decrypt key for agent %s: %s", agent_id, e)
         return None
+
+
+def get_agent_metadata(agent_id: str) -> dict[str, str]:
+    """Return name/instructions for agent_id (may be empty)."""
+    with _lock:
+        store = _load_store()
+        entry = store["agents"].get(agent_id)
+    if not entry or isinstance(entry, str):
+        return {"name": "", "instructions": ""}
+    return {
+        "name": str(entry.get("name") or ""),
+        "instructions": str(entry.get("instructions") or ""),
+    }
 
 
 def delete_agent_key(agent_id: str) -> None:

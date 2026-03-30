@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCf7e"
+USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
 import httpx
 from fastapi import HTTPException, Request
