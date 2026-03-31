@@ -20,7 +20,7 @@ import {
   BASE_SEPOLIA_EXPLORER,
   ERC8004_IDENTITY_REGISTRY_ADDRESS,
 } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, truncateAddress } from "@/lib/utils";
 
 export function AgentCard({ agent }: { agent: AgentWithStats }) {
   const router = useRouter();
@@ -29,7 +29,7 @@ export function AgentCard({ agent }: { agent: AgentWithStats }) {
   );
   const [fundOpen, setFundOpen] = useState(false);
 
-  const shortAddr = `${agent.walletAddress.slice(0, 6)}…${agent.walletAddress.slice(-4)}`;
+  const shortAddr = truncateAddress(agent.walletAddress, 6, 5);
   const registered = Boolean(agent.erc8004Id);
   const explorerAddress = `${BASE_SEPOLIA_EXPLORER}/address/${agent.walletAddress}`;
   const nftHref =

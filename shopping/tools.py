@@ -128,6 +128,36 @@ AGENT_TOOLS: list[dict] = [
             "required": ["checkout_session_id"],
         },
     },
+    {
+        "name": "verify_transaction",
+        "description": (
+            "Verify a Base Sepolia transaction by hash using eth_getTransactionReceipt. "
+            "Use after submit_payment to confirm settlement."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tx_hash": {"type": "string", "description": "0x-prefixed transaction hash"},
+            },
+            "required": ["tx_hash"],
+        },
+    },
+    {
+        "name": "check_agent_reputation",
+        "description": (
+            "Read ERC-8004 ReputationRegistry summary for an agent identity. "
+            "Useful before transacting with unknown counterparties."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "integer", "description": "EIP-8004 agent ID"},
+                "tag1": {"type": "string", "description": "Primary tag", "default": "starred"},
+                "tag2": {"type": "string", "description": "Secondary tag", "default": "session"},
+            },
+            "required": ["agent_id"],
+        },
+    },
 ]
 
 
@@ -166,5 +196,13 @@ def dispatch_tool(session: ShoppingSession, tool_name: str, tool_input: dict[str
             return session.autonomous_checkout_request_payment()
         case "submit_payment":
             return session.submit_payment(tool_input["checkout_session_id"])
+        case "verify_transaction":
+            return session.verify_transaction(tool_input["tx_hash"])
+        case "check_agent_reputation":
+            return session.check_agent_reputation(
+                int(tool_input["agent_id"]),
+                str(tool_input.get("tag1", "starred")),
+                str(tool_input.get("tag2", "session")),
+            )
         case _:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

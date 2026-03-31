@@ -8,12 +8,13 @@ import {
   ExternalLink,
   Fingerprint,
   Loader2,
+  Rocket,
   ShieldCheck,
   ThumbsUp,
   Wallet,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, truncateAddress } from "@/lib/utils";
 import { CopyAgentAddressButton } from "./copy-agent-address-button";
 import { TaskInteraction } from "./task-interaction";
 import { FundAgentDialog } from "./fund-agent-dialog";
@@ -81,6 +82,10 @@ export function AgentDetailView({ agent: initialAgent }: AgentDetailViewProps) {
   const ethNum = ethBalance != null ? Number.parseFloat(ethBalance) : 0;
   const hasEthForGas = ethNum > 0.0005;
   const registered = Boolean(agent.erc8004Id);
+  const { data: tokenUriData } = useSWR<{ token_uri?: string; gateway_url?: string; error?: string }>(
+    registered ? `/api/agents/${agent.id}/token-uri` : null,
+    fetcher
+  );
   const explorerAddress = `${BASE_SEPOLIA_EXPLORER}/address/${agent.walletAddress}`;
   const nftHref =
     registered && agent.erc8004Id
@@ -143,6 +148,8 @@ export function AgentDetailView({ agent: initialAgent }: AgentDetailViewProps) {
   const liked = agent.rating?.liked ?? 0;
   const disliked = agent.rating?.disliked ?? 0;
   const rated = liked + disliked;
+  const manifestGatewayUrl = tokenUriData?.gateway_url ?? null;
+  const shortWallet = truncateAddress(agent.walletAddress, 6, 5);
 
   return (
     <div className="flex h-full w-full overflow-hidden">
@@ -158,24 +165,43 @@ export function AgentDetailView({ agent: initialAgent }: AgentDetailViewProps) {
             ) : null}
           </div>
 
-          <div
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium",
-              registered
-                ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300"
-                : "bg-muted text-muted-foreground"
-            )}
-          >
-            {registered ? (
-              <>
-                <ShieldCheck className="size-3.5 shrink-0" />
-                On-chain identity
-                {agent.erc8004Id ? (
-                  <span className="font-mono opacity-90">#{agent.erc8004Id}</span>
-                ) : null}
-              </>
-            ) : (
-              "Not registered on-chain"
+          <div className="flex items-center gap-2">
+            <div
+              className={cn(
+                "min-w-0 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium",
+                registered
+                  ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300"
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              {registered ? (
+                <>
+                  <ShieldCheck className="size-3.5 shrink-0" />
+                  On-chain identity
+                  {agent.erc8004Id ? (
+                    <span className="font-mono opacity-90">#{agent.erc8004Id}</span>
+                  ) : null}
+                </>
+              ) : (
+                "Not registered onchain"
+              )}
+            </div>
+            {!registered && (
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="h-8 w-8 shrink-0"
+                disabled={!hasEthForGas || registering}
+                onClick={handleRegister}
+                title={
+                  hasEthForGas
+                    ? "Register EIP-8004 identity"
+                    : "Fund the agent with ETH first"
+                }
+              >
+                {registering ? <Loader2 className="size-4 animate-spin" /> : <Rocket className="size-4" />}
+              </Button>
             )}
           </div>
 
@@ -184,16 +210,16 @@ export function AgentDetailView({ agent: initialAgent }: AgentDetailViewProps) {
               <Wallet className="size-3" />
               Wallet
             </p>
-            <div className="flex items-start gap-1">
-              <p className="min-w-0 flex-1 break-all text-xs font-mono text-muted-foreground leading-snug">
-                {agent.walletAddress}
+            <div className="flex items-center gap-1">
+              <p className="min-w-0 flex-1 truncate text-xs font-mono text-muted-foreground leading-none">
+                {shortWallet}
               </p>
-              <CopyAgentAddressButton address={agent.walletAddress} className="mt-0.5 shrink-0" />
+              <CopyAgentAddressButton address={agent.walletAddress} className="shrink-0" />
               <a
                 href={explorerAddress}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="shrink-0 text-muted-foreground hover:text-foreground mt-0.5"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
                 title="Explorer"
               >
                 <ExternalLink className="size-3.5" />
@@ -224,39 +250,29 @@ export function AgentDetailView({ agent: initialAgent }: AgentDetailViewProps) {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             <Button
               type="button"
               variant="secondary"
               size="sm"
-              className="text-xs h-8"
+              className="text-xs h-8 w-full"
               onClick={() => setFundOpen(true)}
             >
               Fund agent
             </Button>
-            {!registered && (
-              <Button
-                type="button"
-                size="sm"
-                className="text-xs h-8"
-                disabled={!hasEthForGas || registering}
-                onClick={handleRegister}
-                title={
-                  hasEthForGas
-                    ? "Register EIP-8004 identity (uses agent ETH for gas)"
-                    : "Fund the agent with ETH first"
-                }
-              >
-                {registering ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin mr-1" />
-                    Registering…
-                  </>
-                ) : (
-                  "Register identity"
-                )}
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {manifestGatewayUrl ? (
+                <a
+                  href={manifestGatewayUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border hover:bg-muted"
+                  title="View manifest on IPFS"
+                >
+                  <ExternalLink className="size-4" />
+                </a>
+              ) : null}
+            </div>
           </div>
           {registerError ? <p className="text-xs text-destructive">{registerError}</p> : null}
           {!registered && !hasEthForGas ? (

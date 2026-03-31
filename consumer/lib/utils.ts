@@ -15,6 +15,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function truncateAddress(address: string, start = 6, end = 5): string {
+  if (!address) return '';
+  if (address.length <= start + end + 3) return address;
+  return `${address.slice(0, start)}...${address.slice(-end)}`;
+}
+
 export const fetcher = async (url: string) => {
   const response = await fetch(url);
 

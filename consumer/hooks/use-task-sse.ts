@@ -4,12 +4,57 @@ import { useEffect, useRef, useState } from "react";
 
 export type AgentEvent =
   | { type: "thinking" }
+  | {
+      type: "decision";
+      step: number;
+      max_steps: number;
+      description: string;
+      timestamp?: number;
+    }
+  | {
+      type: "guardrail";
+      check: string;
+      passed?: boolean;
+      [key: string]: unknown;
+    }
+  | {
+      type: "retry";
+      target: string;
+      attempt: number;
+      max_attempts: number;
+      delay_s: number;
+      error: string;
+      timestamp?: number;
+    }
   | { type: "tool_call"; tool: string; args: Record<string, unknown> }
   | {
       type: "tool_result";
       tool: string;
       result: string;
       result_data?: Record<string, unknown>;
+    }
+  | {
+      type: "verification";
+      tx_hash?: string;
+      verified?: boolean;
+      status?: number;
+      block_number?: number;
+      [key: string]: unknown;
+    }
+  | {
+      type: "budget_summary";
+      iterations_used: number;
+      max_iterations: number;
+      tool_calls: number;
+      duration_ms: number;
+    }
+  | {
+      type: "trust_check";
+      agent_id: number;
+      count?: number;
+      summary_value?: number;
+      summary_decimals?: number;
+      [key: string]: unknown;
     }
   | { type: "text"; text: string }
   | { type: "log"; level: string; msg: string }
@@ -19,6 +64,12 @@ export type AgentEvent =
       result: string;
       /** submit_payment envelope or merchant checkout — tx_url, cart_summary, nested order */
       order?: Record<string, unknown> | null;
+      budget?: {
+        iterations_used?: number;
+        max_iterations?: number;
+        tool_calls?: number;
+        duration_ms?: number;
+      };
     }
   | { type: "keepalive" };
 
