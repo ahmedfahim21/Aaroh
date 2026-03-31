@@ -27,6 +27,15 @@ log = logging.getLogger(__name__)
 
 # Base Sepolia block explorer (matches x402 default network eip155:84532)
 _BASE_SEPOLIA_TX_EXPLORER = "https://sepolia.basescan.org/tx"
+_ERC20_BALANCE_ABI = [
+    {
+        "name": "balanceOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "account", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    }
+]
 
 # Type alias for the optional event emitter callback used by the agent
 EmitFn = Callable[[dict], None]
@@ -110,6 +119,8 @@ class ShoppingSession:
         self._agent_private_key = agent_private_key  # server-side only; never from browser
         # checkout_session_id -> {"accepts_entry": dict, "total_cents": int}
         self._x402_requirements: dict[str, dict[str, Any]] = {}
+        self._rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://sepolia.base.org")
+        self._w3_client: Web3 | None = None
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -133,19 +144,14 @@ class ShoppingSession:
         except RuntimeError:
             return None
 
+    def _w3(self) -> Web3:
+        if self._w3_client is None:
+            self._w3_client = Web3(Web3.HTTPProvider(self._rpc_url))
+        return self._w3_client
+
     def _usdc_balance_micro(self, wallet_address: str) -> int:
-        erc20_abi = [
-            {
-                "name": "balanceOf",
-                "type": "function",
-                "stateMutability": "view",
-                "inputs": [{"name": "account", "type": "address"}],
-                "outputs": [{"name": "", "type": "uint256"}],
-            }
-        ]
-        rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://sepolia.base.org")
-        w3 = Web3(Web3.HTTPProvider(rpc_url))
-        token = w3.eth.contract(address=Web3.to_checksum_address(USDC_BASE_SEPOLIA), abi=erc20_abi)
+        w3 = self._w3()
+        token = w3.eth.contract(address=Web3.to_checksum_address(USDC_BASE_SEPOLIA), abi=_ERC20_BALANCE_ABI)
         return int(token.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call())
 
     def _request_signature(self, body_bytes: bytes) -> str:
@@ -756,9 +762,8 @@ class ShoppingSession:
             return json.dumps({"verified": False, "error": "Invalid tx hash format"})
         if not clean.startswith("0x"):
             clean = f"0x{clean}"
-        rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://sepolia.base.org")
         try:
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            w3 = self._w3()
             receipt = w3.eth.get_transaction_receipt(clean)
             status_ok = int(receipt.get("status", 0)) == 1
             out = {

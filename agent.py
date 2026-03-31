@@ -329,12 +329,12 @@ def publish_agent_manifest(agent_id: str, req: PublishManifestRequest) -> dict[s
         raise HTTPException(status_code=502, detail=f"IPFS pin failed: {exc}") from exc
 
     ipfs_uri = f"ipfs://{cid}"
-    if not set_agent_uri(pk, int(req.erc8004_id), ipfs_uri):
+    if not set_agent_uri(pk, req.erc8004_id, ipfs_uri):
         raise HTTPException(status_code=502, detail="setAgentURI failed")
 
     return {
         "id": agent_id,
-        "erc8004_id": int(req.erc8004_id),
+        "erc8004_id": req.erc8004_id,
         "ipfs_cid": cid,
         "agent_uri": ipfs_uri,
         "gateway_url": f"https://gateway.pinata.cloud/ipfs/{cid}",
