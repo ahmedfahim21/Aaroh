@@ -20,7 +20,7 @@ type MessagesProps = {
   selectedModelId: string;
   getTranslatedText?: (messageId: string, partIndex: number) => string | undefined;
   getTtsAudio?: (messageId: string) => string | undefined;
-  synthesizeAndPlay?: (messageId: string, text: string) => Promise<void>;
+
   playTtsAudio?: (messageId: string) => void;
   stopTtsAudio?: () => void;
   isTtsPlaying?: boolean;
@@ -38,7 +38,7 @@ function PureMessages({
   selectedModelId: _selectedModelId,
   getTranslatedText,
   getTtsAudio,
-  synthesizeAndPlay,
+
   playTtsAudio,
   stopTtsAudio,
   isTtsPlaying,
@@ -84,7 +84,7 @@ function PureMessages({
                 hasSentMessage && index === messages.length - 1
               }
               setMessages={setMessages}
-              synthesizeAndPlay={synthesizeAndPlay}
+
               vote={
                 votes
                   ? votes.find((vote) => vote.messageId === message.id)
