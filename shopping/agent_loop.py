@@ -185,7 +185,18 @@ def run_shopping_agent(
             _emit({"type": "tool_call", "tool": name, "args": args})
 
             result_str = dispatch_tool(session, name, args)
-            _emit({"type": "tool_result", "tool": name, "result": result_str[:600]})
+            result_data: dict[str, Any] | None = None
+            try:
+                parsed_result = json.loads(result_str)
+                if isinstance(parsed_result, dict) and "_ui" in parsed_result:
+                    result_data = parsed_result
+            except Exception:
+                pass
+
+            event_payload = {"type": "tool_result", "tool": name, "result": result_str[:600]}
+            if result_data is not None:
+                event_payload["result_data"] = result_data
+            _emit(event_payload)
 
             response_parts.append(
                 gtypes.Part.from_function_response(name=name, response={"result": result_str})

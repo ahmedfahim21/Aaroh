@@ -13,6 +13,7 @@ import { useReputationFeedback } from "@/hooks/use-reputation-feedback";
 import { useTxVerification } from "@/hooks/use-tx-verification";
 import { ThumbDownIcon, ThumbUpIcon } from "@/components/icons";
 import { toast } from "sonner";
+import { renderCommerceUi } from "@/lib/render-commerce-ui";
 import { cn } from "@/lib/utils";
 
 interface TaskInteractionProps {
@@ -66,13 +67,17 @@ function ToolCallBubble({
   tool,
   args,
   result,
+  resultData,
 }: {
   tool: string;
   args: Record<string, unknown>;
   result?: string;
+  resultData?: Record<string, unknown>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const label = toolLabel(tool, args);
+  const uiType = (resultData?._ui as { type?: string } | undefined)?.type;
+  const commerceUi = renderCommerceUi(uiType, resultData ?? null, `${tool}-${uiType ?? "result"}`);
 
   return (
     <div className="flex flex-col gap-1">
@@ -85,7 +90,11 @@ function ToolCallBubble({
       </div>
 
       {/* Tool result */}
-      {result !== undefined && (
+      {commerceUi ? (
+        <div className="flex items-start gap-2 self-start w-full">
+          <div className="max-w-[85%] w-full">{commerceUi}</div>
+        </div>
+      ) : result !== undefined && (
         <div className="flex items-start gap-2 self-start max-w-[85%]">
           <div className="rounded-2xl rounded-tl-sm border bg-muted px-3 py-2 text-sm">
             <span className="text-xs font-medium text-muted-foreground block mb-0.5">
@@ -252,7 +261,13 @@ export function TaskInteraction({
 
   // Pair tool_call with its subsequent tool_result
   type Bubble =
-    | { kind: "tool"; tool: string; args: Record<string, unknown>; result?: string }
+    | {
+        kind: "tool";
+        tool: string;
+        args: Record<string, unknown>;
+        result?: string;
+        resultData?: Record<string, unknown>;
+      }
     | { kind: "thinking" }
     | { kind: "text"; text: string }
     | {
@@ -274,6 +289,7 @@ export function TaskInteraction({
       const last = bubbles[bubbles.length - 1];
       if (last?.kind === "tool") {
         last.result = evt.result;
+        last.resultData = evt.result_data;
       }
     } else if (evt.type === "text") {
       bubbles.push({ kind: "text", text: evt.text });
@@ -341,7 +357,13 @@ export function TaskInteraction({
 
           if (b.kind === "tool") {
             return (
-              <ToolCallBubble key={i} tool={b.tool} args={b.args} result={b.result} />
+              <ToolCallBubble
+                key={i}
+                tool={b.tool}
+                args={b.args}
+                result={b.result}
+                resultData={b.resultData}
+              />
             );
           }
 

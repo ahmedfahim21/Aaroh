@@ -9,6 +9,7 @@ import type { Agent, AgentSession, AgentWithStats } from "./schema";
 // biome-ignore lint: Forbidden non-null assertion.
 const client = postgres(process.env.POSTGRES_URL!);
 const db = drizzle(client);
+const idEquals = (column: unknown, value: string) => sql`${column}::text = ${value}`;
 
 export async function createAgent(data: {
   id: string;
@@ -23,7 +24,7 @@ export async function createAgent(data: {
 }
 
 export async function updateAgentErc8004Id(id: string, erc8004Id: string): Promise<void> {
-  await db.update(agent).set({ erc8004Id }).where(eq(agent.id, id));
+  await db.update(agent).set({ erc8004Id }).where(idEquals(agent.id, id));
 }
 
 export async function listAgentsForUser(userId: string): Promise<Agent[]> {
@@ -87,7 +88,7 @@ export async function getSessionRatingSummary(agentId: string): Promise<{
       disliked: sql<number>`count(*) filter (where ${agentSession.rating} = false)::int`,
     })
     .from(agentSession)
-    .where(and(eq(agentSession.agentId, agentId), isNotNull(agentSession.rating)));
+    .where(and(idEquals(agentSession.agentId, agentId), isNotNull(agentSession.rating)));
 
   return {
     liked: row?.liked ?? 0,
@@ -101,10 +102,10 @@ export async function getAgentById(id: string, userId?: string): Promise<Agent |
     const [row] = await db
       .select()
       .from(agent)
-      .where(and(eq(agent.id, id), eq(agent.userId, userId)));
+      .where(and(idEquals(agent.id, id), eq(agent.userId, userId)));
     return row;
   }
-  const [row] = await db.select().from(agent).where(eq(agent.id, id));
+  const [row] = await db.select().from(agent).where(idEquals(agent.id, id));
   return row;
 }
 
@@ -124,16 +125,16 @@ export async function getAgentDetailById(
       liked: sql<number>`(
         select count(*)::int
         from ${agentSession}
-        where ${agentSession.agentId} = ${agent.id} and ${agentSession.rating} = true
+        where ${agentSession.agentId}::text = ${agent.id}::text and ${agentSession.rating} = true
       )`,
       disliked: sql<number>`(
         select count(*)::int
         from ${agentSession}
-        where ${agentSession.agentId} = ${agent.id} and ${agentSession.rating} = false
+        where ${agentSession.agentId}::text = ${agent.id}::text and ${agentSession.rating} = false
       )`,
     })
     .from(agent)
-    .where(and(eq(agent.id, id), eq(agent.userId, userId)));
+    .where(and(idEquals(agent.id, id), eq(agent.userId, userId)));
 
   if (!row) return undefined;
   const { liked, disliked, ...rest } = row;
@@ -143,7 +144,7 @@ export async function getAgentDetailById(
 export async function deleteAgentForUser(id: string, userId: string): Promise<Agent | undefined> {
   const [row] = await db
     .delete(agent)
-    .where(and(eq(agent.id, id), eq(agent.userId, userId)))
+    .where(and(idEquals(agent.id, id), eq(agent.userId, userId)))
     .returning();
   return row;
 }
@@ -181,7 +182,7 @@ export async function rateSession(
   const [row] = await db
     .update(agentSession)
     .set({ rating })
-    .where(and(eq(agentSession.id, sessionId), eq(agentSession.agentId, agentId)))
+    .where(and(eq(agentSession.id, sessionId), idEquals(agentSession.agentId, agentId)))
     .returning();
   return row;
 }
@@ -190,7 +191,7 @@ export async function listSessionsByAgentId(agentId: string): Promise<AgentSessi
   return db
     .select()
     .from(agentSession)
-    .where(eq(agentSession.agentId, agentId))
+    .where(idEquals(agentSession.agentId, agentId))
     .orderBy(desc(agentSession.createdAt));
 }
 

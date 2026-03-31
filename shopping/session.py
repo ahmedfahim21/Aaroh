@@ -588,6 +588,7 @@ class ShoppingSession:
 
         self._log("info", f"x402: pay {int(amount_micro) / 1_000_000:.2f} USDC → {pay_to[:10]}…")
         return json.dumps({
+            "_ui": {"type": "x402-payment-required"},
             "x402": "payment_required",
             "checkout_session_id": sid,
             "order_total_cents": total_cents,
@@ -666,6 +667,7 @@ class ShoppingSession:
         if tx_hash:
             self._log("info", f"Blockchain proof (tx): {tx_hash[:12]}…{tx_hash[-10:]}")
         return json.dumps({
+            "_ui": {"type": "order-confirmation"},
             "success": True,
             "order": result,
             "order_id": order_info.get("id"),
