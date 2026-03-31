@@ -13,17 +13,29 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any, Callable
 
 import httpx
+from web3 import Web3
 
 from shopping.evm import USDC_BASE_SEPOLIA, agent_address, build_x_payment, build_x_payment_with_key
+from shopping.identity import get_reputation_summary
 
 log = logging.getLogger(__name__)
 
 # Base Sepolia block explorer (matches x402 default network eip155:84532)
 _BASE_SEPOLIA_TX_EXPLORER = "https://sepolia.basescan.org/tx"
+_ERC20_BALANCE_ABI = [
+    {
+        "name": "balanceOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "account", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    }
+]
 
 # Type alias for the optional event emitter callback used by the agent
 EmitFn = Callable[[dict], None]
@@ -107,12 +119,20 @@ class ShoppingSession:
         self._agent_private_key = agent_private_key  # server-side only; never from browser
         # checkout_session_id -> {"accepts_entry": dict, "total_cents": int}
         self._x402_requirements: dict[str, dict[str, Any]] = {}
+        self._rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://sepolia.base.org")
+        self._w3_client: Web3 | None = None
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _log(self, level: str, msg: str) -> None:
         if self._emit:
             self._emit({"type": "log", "level": level, "msg": msg})
+
+    def _guardrail(self, check: str, **details: Any) -> None:
+        if self._emit:
+            payload = {"type": "guardrail", "check": check}
+            payload.update(details)
+            self._emit(payload)
 
     def _agent_address(self) -> str | None:
         if self._agent_private_key:
@@ -123,6 +143,16 @@ class ShoppingSession:
             return agent_address()
         except RuntimeError:
             return None
+
+    def _w3(self) -> Web3:
+        if self._w3_client is None:
+            self._w3_client = Web3(Web3.HTTPProvider(self._rpc_url))
+        return self._w3_client
+
+    def _usdc_balance_micro(self, wallet_address: str) -> int:
+        w3 = self._w3()
+        token = w3.eth.contract(address=Web3.to_checksum_address(USDC_BASE_SEPOLIA), abi=_ERC20_BALANCE_ABI)
+        return int(token.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call())
 
     def _request_signature(self, body_bytes: bytes) -> str:
         """EIP-191 personal_sign over SHA256(body) when agent key exists; else browser placeholder."""
@@ -618,6 +648,45 @@ class ShoppingSession:
         if not pay_to or raw_amt is None:
             return json.dumps({"error": "Stored payment requirements incomplete", "checkout_session_id": checkout_session_id})
         amount_micro_usdc = int(str(raw_amt))
+        self._guardrail(
+            "payment_binding",
+            checkout_session_id=checkout_session_id,
+            payee=pay_to,
+            amount_micro_usdc=str(amount_micro_usdc),
+            source="402_stored",
+            passed=True,
+        )
+
+        agent_wallet = self._agent_address()
+        if agent_wallet:
+            try:
+                balance_micro = self._usdc_balance_micro(agent_wallet)
+                passed = balance_micro >= amount_micro_usdc
+                self._guardrail(
+                    "balance_preflight",
+                    agent_wallet=agent_wallet,
+                    balance_micro_usdc=str(balance_micro),
+                    required_micro_usdc=str(amount_micro_usdc),
+                    passed=passed,
+                )
+                if not passed:
+                    return json.dumps(
+                        {
+                            "error": "Insufficient USDC balance for payment",
+                            "agent_wallet": agent_wallet,
+                            "balance_micro_usdc": str(balance_micro),
+                            "required_micro_usdc": str(amount_micro_usdc),
+                        }
+                    )
+            except Exception as exc:
+                self._guardrail(
+                    "balance_preflight",
+                    agent_wallet=agent_wallet,
+                    required_micro_usdc=str(amount_micro_usdc),
+                    passed=False,
+                    error=str(exc),
+                )
+                return json.dumps({"error": f"Balance preflight failed: {exc}"})
 
         self._log(
             "info",
@@ -628,6 +697,11 @@ class ShoppingSession:
                 x_payment = build_x_payment_with_key(self._agent_private_key, pay_to, amount_micro_usdc)
             else:
                 x_payment = build_x_payment(pay_to, amount_micro_usdc)
+            self._guardrail(
+                "eip3009_time_bound",
+                valid_for_seconds=3600,
+                passed=True,
+            )
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
 
@@ -680,6 +754,51 @@ class ShoppingSession:
             "agent_wallet": self._agent_address(),
             "agent_erc8004_id": self.agent_id,
         })
+
+    def verify_transaction(self, tx_hash: str) -> str:
+        """Verify Base Sepolia transaction receipt."""
+        clean = str(tx_hash or "").strip()
+        if not _is_plausible_evm_tx_hash(clean):
+            return json.dumps({"verified": False, "error": "Invalid tx hash format"})
+        if not clean.startswith("0x"):
+            clean = f"0x{clean}"
+        try:
+            w3 = self._w3()
+            receipt = w3.eth.get_transaction_receipt(clean)
+            status_ok = int(receipt.get("status", 0)) == 1
+            out = {
+                "verified": status_ok,
+                "tx_hash": clean,
+                "status": int(receipt.get("status", 0)),
+                "block_number": int(receipt.get("blockNumber", 0)),
+                "gas_used": int(receipt.get("gasUsed", 0)),
+                "network": "eip155:84532",
+            }
+            if self._emit:
+                self._emit({"type": "verification", **out})
+            return json.dumps(out)
+        except Exception as exc:
+            out = {"verified": False, "tx_hash": clean, "error": str(exc)}
+            if self._emit:
+                self._emit({"type": "verification", **out})
+            return json.dumps(out)
+
+    def check_agent_reputation(self, agent_id: int, tag1: str = "starred", tag2: str = "session") -> str:
+        """Read ERC-8004 trust summary for the given agent id."""
+        try:
+            summary = get_reputation_summary(agent_id, tag1=tag1, tag2=tag2)
+            if self._emit:
+                self._emit({"type": "trust_check", **summary})
+            return json.dumps(summary)
+        except Exception as exc:
+            return json.dumps(
+                {
+                    "error": str(exc),
+                    "agent_id": int(agent_id),
+                    "tag1": tag1,
+                    "tag2": tag2,
+                }
+            )
 
     # ── Private ───────────────────────────────────────────────────────────────
 

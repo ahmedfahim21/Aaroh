@@ -58,9 +58,23 @@ function toolLabel(tool: string, args: Record<string, unknown>): string {
       return "Creating checkout — fetching x402 payment requirements";
     case "submit_payment":
       return "Signing and submitting x402 payment";
+    case "verify_transaction":
+      return "Verifying on-chain transaction receipt";
+    case "check_agent_reputation":
+      return `Checking ERC-8004 reputation${args.agent_id ? ` for #${args.agent_id}` : ""}`;
     default:
       return tool;
   }
+}
+
+function downloadJson(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(href);
 }
 
 function ToolCallBubble({
@@ -269,6 +283,10 @@ export function TaskInteraction({
         resultData?: Record<string, unknown>;
       }
     | { kind: "thinking" }
+    | { kind: "decision"; text: string }
+    | { kind: "retry"; text: string }
+    | { kind: "verification"; text: string; verified?: boolean }
+    | { kind: "budget"; iterations: number; maxIterations: number; toolCalls: number; durationMs: number }
     | { kind: "text"; text: string }
     | {
         kind: "done";
@@ -282,6 +300,16 @@ export function TaskInteraction({
   for (const evt of events as AgentEvent[]) {
     if (evt.type === "thinking") {
       bubbles.push({ kind: "thinking" });
+    } else if (evt.type === "decision") {
+      bubbles.push({
+        kind: "decision",
+        text: `Step ${evt.step}/${evt.max_steps}: ${evt.description}`,
+      });
+    } else if (evt.type === "retry") {
+      bubbles.push({
+        kind: "retry",
+        text: `Retrying ${evt.target} (${evt.attempt}/${evt.max_attempts}) in ${evt.delay_s.toFixed(1)}s`,
+      });
     } else if (evt.type === "tool_call") {
       bubbles.push({ kind: "tool", tool: evt.tool, args: evt.args });
     } else if (evt.type === "tool_result") {
@@ -293,6 +321,22 @@ export function TaskInteraction({
       }
     } else if (evt.type === "text") {
       bubbles.push({ kind: "text", text: evt.text });
+    } else if (evt.type === "verification") {
+      bubbles.push({
+        kind: "verification",
+        text: evt.verified
+          ? `Transaction verified on-chain${evt.block_number ? ` (block ${evt.block_number})` : ""}`
+          : "Transaction verification failed or pending",
+        verified: evt.verified,
+      });
+    } else if (evt.type === "budget_summary") {
+      bubbles.push({
+        kind: "budget",
+        iterations: evt.iterations_used,
+        maxIterations: evt.max_iterations,
+        toolCalls: evt.tool_calls,
+        durationMs: evt.duration_ms,
+      });
     } else if (evt.type === "done") {
       bubbles.push({
         kind: "done",
@@ -367,6 +411,57 @@ export function TaskInteraction({
             );
           }
 
+          if (b.kind === "decision") {
+            return (
+              <div key={i} className="self-end max-w-[85%]">
+                <div className="rounded-2xl rounded-tr-sm bg-primary/10 px-3 py-2 text-xs text-primary">
+                  {b.text}
+                </div>
+              </div>
+            );
+          }
+
+          if (b.kind === "retry") {
+            return (
+              <div key={i} className="self-start max-w-[85%]">
+                <div className="rounded-2xl rounded-tl-sm border bg-muted px-3 py-2 text-xs">
+                  {b.text}
+                </div>
+              </div>
+            );
+          }
+
+          if (b.kind === "verification") {
+            return (
+              <div key={i} className="self-start max-w-[85%]">
+                <div
+                  className={cn(
+                    "rounded-2xl rounded-tl-sm border px-3 py-2 text-xs",
+                    b.verified
+                      ? "border-green-300 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-200"
+                      : "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+                  )}
+                >
+                  {b.text}
+                </div>
+              </div>
+            );
+          }
+
+          if (b.kind === "budget") {
+            return (
+              <div key={i} className="self-start max-w-[85%]">
+                <div className="rounded-2xl rounded-tl-sm border bg-card px-3 py-2 text-xs">
+                  <span className="font-medium block mb-1">Compute budget summary</span>
+                  <p>
+                    Iterations: {b.iterations}/{b.maxIterations} · Tool calls: {b.toolCalls} · Duration:{" "}
+                    {(b.durationMs / 1000).toFixed(1)}s
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
           if (b.kind === "text") {
             return (
               <div key={i} className="self-start max-w-[85%]">
@@ -416,6 +511,22 @@ export function TaskInteraction({
 
         {status === "done" && (
           <div className="flex flex-col gap-2 pt-1 border-t border-dashed mt-1">
+            <button
+              type="button"
+              className="self-start rounded-md border px-2 py-1 text-xs hover:bg-muted"
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/agents/${agentId}/sessions/${taskId}/log`);
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error ?? "Failed to fetch log");
+                  downloadJson(`agent_log_${taskId}.json`, data);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Download failed");
+                }
+              }}
+            >
+              Download agent_log.json
+            </button>
             <p className="text-xs text-muted-foreground">Rate this run</p>
             <div className="flex items-center gap-2">
               <button

@@ -30,6 +30,7 @@ import logging
 import os
 import secrets
 import threading
+import time
 import uuid
 
 from dotenv import load_dotenv
@@ -48,17 +49,23 @@ from pydantic import BaseModel
 from shopping.agent_loop import run_shopping_agent
 from shopping.evm import USDC_BASE_SEPOLIA, agent_address
 from shopping.identity import (
+    build_agent_manifest,
     build_registration_dict,
+    get_agent_token_uri,
     get_or_register_eip8004_identity,
     register_consumer_agent_eip8004,
     register_with_key,
+    set_agent_uri,
 )
+from shopping.ipfs import pin_json_to_ipfs
 from shopping.keys import (
     delete_agent_key,
     generate_agent_key,
     get_agent_metadata,
     load_agent_private_key,
 )
+from shopping.retry_utils import MAX_RETRIES
+from shopping.tools import AGENT_TOOLS
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -99,7 +106,10 @@ class TaskRecord:
     status: str = "running"  # running | done | failed
     result: str | None = None
     order: dict | None = None
+    budget: dict | None = None
     events: list[dict] = field(default_factory=list)
+    started_at: float = field(default_factory=time.time)
+    completed_at: float | None = None
 
 
 _tasks: dict[str, TaskRecord] = {}
@@ -143,6 +153,8 @@ def _run_task(
         record.status = "done" if result["success"] else "failed"
         record.result = result["result"]
         record.order = result.get("order")
+        record.budget = result.get("budget")
+        record.completed_at = time.time()
         _push_event(
             task_id,
             {
@@ -150,6 +162,7 @@ def _run_task(
                 "success": result["success"],
                 "result": result["result"],
                 "order": result.get("order"),
+                "budget": result.get("budget"),
             },
         )
     except Exception as exc:
@@ -157,6 +170,7 @@ def _run_task(
         record = _tasks[task_id]
         record.status = "failed"
         record.result = str(exc)
+        record.completed_at = time.time()
         _push_event(task_id, {"type": "done", "success": False, "result": str(exc)})
     finally:
         _push_event(task_id, None)
@@ -224,6 +238,11 @@ class CreateAgentRequest(BaseModel):
     instructions: str = ""
 
 
+class PublishManifestRequest(BaseModel):
+    erc8004_id: int
+    operator_wallet: str | None = None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -262,6 +281,85 @@ def get_agent_registration_file(agent_id: str) -> dict[str, Any]:
     return doc
 
 
+@app.get("/agents/{agent_id}/manifest")
+def get_agent_manifest(agent_id: str, erc8004_id: int | None = None, operator_wallet: str | None = None) -> dict[str, Any]:
+    """Return machine-readable agent capability manifest (`agent.json`)."""
+    if not load_agent_private_key(agent_id):
+        raise HTTPException(status_code=404, detail="Unknown agent id")
+    meta = get_agent_metadata(agent_id)
+    name = meta.get("name") or "Aaroh Agent"
+    desc = meta.get("instructions") or "Autonomous shopping agent powered by Aaroh"
+    tools = [{"name": t["name"], "description": t["description"]} for t in AGENT_TOOLS]
+    manifest = build_agent_manifest(
+        agent_name=name,
+        description=desc,
+        operator_wallet=operator_wallet,
+        erc8004_agent_id=erc8004_id,
+        supported_tools=tools,
+        model=GEMINI_MODEL,
+        max_iterations=20,
+        max_llm_retries=MAX_RETRIES,
+    )
+    return manifest
+
+
+@app.post("/agents/{agent_id}/publish-manifest")
+def publish_agent_manifest(agent_id: str, req: PublishManifestRequest) -> dict[str, Any]:
+    """Pin manifest JSON to IPFS and update on-chain agentURI to ipfs://CID."""
+    pk = load_agent_private_key(agent_id)
+    if not pk:
+        raise HTTPException(status_code=404, detail="Unknown agent id")
+    meta = get_agent_metadata(agent_id)
+    name = meta.get("name") or "Aaroh Agent"
+    desc = meta.get("instructions") or "Autonomous shopping agent powered by Aaroh"
+    tools = [{"name": t["name"], "description": t["description"]} for t in AGENT_TOOLS]
+    manifest = build_agent_manifest(
+        agent_name=name,
+        description=desc,
+        operator_wallet=req.operator_wallet,
+        erc8004_agent_id=req.erc8004_id,
+        supported_tools=tools,
+        model=GEMINI_MODEL,
+        max_iterations=20,
+        max_llm_retries=MAX_RETRIES,
+    )
+    try:
+        cid = pin_json_to_ipfs(manifest, name=f"aaroh-agent-manifest-{req.erc8004_id}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"IPFS pin failed: {exc}") from exc
+
+    ipfs_uri = f"ipfs://{cid}"
+    if not set_agent_uri(pk, req.erc8004_id, ipfs_uri):
+        raise HTTPException(status_code=502, detail="setAgentURI failed")
+
+    return {
+        "id": agent_id,
+        "erc8004_id": req.erc8004_id,
+        "ipfs_cid": cid,
+        "agent_uri": ipfs_uri,
+        "gateway_url": f"https://gateway.pinata.cloud/ipfs/{cid}",
+        "manifest": manifest,
+    }
+
+
+@app.get("/agents/{agent_id}/token-uri")
+def get_agent_token_uri_endpoint(agent_id: str, erc8004_id: int) -> dict[str, Any]:
+    """Read tokenURI for the specified EIP-8004 agent id."""
+    try:
+        token_uri = get_agent_token_uri(int(erc8004_id))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to read tokenURI: {exc}") from exc
+    gateway_url = None
+    if token_uri.startswith("ipfs://"):
+        gateway_url = f"https://gateway.pinata.cloud/ipfs/{token_uri.removeprefix('ipfs://')}"
+    return {
+        "id": agent_id,
+        "erc8004_id": int(erc8004_id),
+        "token_uri": token_uri,
+        "gateway_url": gateway_url,
+    }
+
+
 @app.post("/agents/{agent_id}/register")
 def register_consumer_agent_on_chain(agent_id: str) -> dict[str, Any]:
     """Mint EIP-8004 identity with data URI registration (requires agent wallet ETH for gas)."""
@@ -277,7 +375,16 @@ def register_consumer_agent_on_chain(agent_id: str) -> dict[str, Any]:
     meta = get_agent_metadata(agent_id)
     name = meta.get("name") or "Aaroh Agent"
     desc = meta.get("instructions") or "Autonomous shopping agent powered by Aaroh"
-    aid = register_consumer_agent_eip8004(pk, name, desc)
+    tools = [{"name": t["name"], "description": t["description"]} for t in AGENT_TOOLS]
+    aid = register_consumer_agent_eip8004(
+        pk,
+        name,
+        desc,
+        supported_tools=tools,
+        model=GEMINI_MODEL,
+        max_iterations=20,
+        max_llm_retries=MAX_RETRIES,
+    )
     if aid is None:
         log.error(
             "EIP-8004: register failed consumer_agent_id=%s signer=%s ERC8004_IDENTITY_REGISTRY=%s IDENTITY_REGISTRY_RPC=%s",
@@ -391,7 +498,32 @@ def get_task(task_id: str) -> dict[str, Any]:
         "status": r.status,
         "result": r.result,
         "order": r.order,
+        "budget": r.budget,
+        "started_at": r.started_at,
+        "completed_at": r.completed_at,
         "event_count": len(r.events),
+    }
+
+
+@app.get("/tasks/{task_id}/log")
+def get_task_log(task_id: str) -> dict[str, Any]:
+    """Structured `agent_log.json` export for challenge submission."""
+    r = _tasks.get(task_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {
+        "task_id": r.id,
+        "task": r.task,
+        "started_at": r.started_at,
+        "completed_at": r.completed_at,
+        "status": r.status,
+        "success": r.status == "done",
+        "iterations_used": (r.budget or {}).get("iterations_used"),
+        "max_iterations": (r.budget or {}).get("max_iterations", 20),
+        "tool_calls": (r.budget or {}).get("tool_calls"),
+        "duration_ms": (r.budget or {}).get("duration_ms"),
+        "events": r.events,
+        "final_output": {"result": r.result, "order": r.order},
     }
 
 

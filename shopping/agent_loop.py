@@ -3,19 +3,21 @@
 import json
 import logging
 import os
+import time
 from typing import Any, Callable
 
 from google import genai
 from google.genai import errors as gerrors
 from google.genai import types as gtypes
 
-from shopping.retry_utils import with_retry
+from shopping.retry_utils import MAX_RETRIES, with_retry
 from shopping.session import ShoppingSession
 from shopping.tools import AGENT_TOOLS, dispatch_tool
 
 log = logging.getLogger(__name__)
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MAX_AGENT_ITERATIONS = 20
 
 EmitFn = Callable[[dict], None]
 
@@ -107,8 +109,10 @@ def run_shopping_agent(
         "You hold USDC on Base Sepolia and pay for purchases autonomously via x402. "
         "Never ask the human for merchant URLs, missing info, or confirmation—only use tools and complete the task. "
         "Typical flow: list_merchants or find_merchant → discover_merchant → search/add_to_cart → "
-        "checkout() → submit_payment. "
-        "After a successful submit_payment, briefly summarise the purchase."
+        "checkout() → submit_payment → verify_transaction(tx_hash). "
+        "You must complete: discover → plan → execute → verify → submit. "
+        "Check trust signals using check_agent_reputation when applicable. "
+        "After successful payment and verification, briefly summarise the purchase."
         f"{merchants_desc}"
     )
     system = f"{base_system}\n\n{extra}" if extra else base_system
@@ -130,7 +134,32 @@ def run_shopping_agent(
     # Last successful submit_payment payload (includes order, tx_url, cart_summary, etc.)
     completed_purchase: dict[str, Any] | None = None
 
-    for _ in range(20):
+    start_ts = time.time()
+    tool_calls_count = 0
+    iterations_used = 0
+    pending_verification_tx_hash: str | None = None
+
+    for step in range(1, MAX_AGENT_ITERATIONS + 1):
+        iterations_used = step
+        _emit(
+            {
+                "type": "decision",
+                "step": step,
+                "max_steps": MAX_AGENT_ITERATIONS,
+                "description": "Planning next action from available tool context",
+                "timestamp": time.time(),
+            }
+        )
+        _emit(
+            {
+                "type": "guardrail",
+                "check": "iteration_budget",
+                "current": step,
+                "max": MAX_AGENT_ITERATIONS,
+                "passed": step <= MAX_AGENT_ITERATIONS,
+                "timestamp": time.time(),
+            }
+        )
         _emit({"type": "thinking"})
 
         def _on_gemini_retry(attempt: int, exc: BaseException, delay_s: float) -> None:
@@ -148,6 +177,17 @@ def run_shopping_agent(
                         "text": f"Transient API error — retrying in {delay_s:.1f}s",
                     }
                 )
+            _emit(
+                {
+                    "type": "retry",
+                    "target": "llm_generate_content",
+                    "attempt": attempt,
+                    "max_attempts": MAX_RETRIES,
+                    "delay_s": delay_s,
+                    "error": str(exc),
+                    "timestamp": time.time(),
+                }
+            )
 
         def _generate() -> Any:
             return client.models.generate_content(
@@ -174,7 +214,26 @@ def run_shopping_agent(
                 p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
             )
             _emit({"type": "text", "text": text})
-            return {"success": True, "result": text, "order": completed_purchase}
+            _emit(
+                {
+                    "type": "budget_summary",
+                    "iterations_used": iterations_used,
+                    "max_iterations": MAX_AGENT_ITERATIONS,
+                    "tool_calls": tool_calls_count,
+                    "duration_ms": int((time.time() - start_ts) * 1000),
+                }
+            )
+            return {
+                "success": True,
+                "result": text,
+                "order": completed_purchase,
+                "budget": {
+                    "iterations_used": iterations_used,
+                    "max_iterations": MAX_AGENT_ITERATIONS,
+                    "tool_calls": tool_calls_count,
+                    "duration_ms": int((time.time() - start_ts) * 1000),
+                },
+            }
 
         response_parts: list[gtypes.Part] = []
         last_order = None
@@ -182,6 +241,7 @@ def run_shopping_agent(
         for part in fn_calls:
             name = part.function_call.name
             args = dict(part.function_call.args)
+            tool_calls_count += 1
             _emit({"type": "tool_call", "tool": name, "args": args})
 
             result_str = dispatch_tool(session, name, args)
@@ -190,10 +250,22 @@ def run_shopping_agent(
                 parsed_result = json.loads(result_str)
                 if isinstance(parsed_result, dict) and "_ui" in parsed_result:
                     result_data = parsed_result
+                if isinstance(parsed_result, dict) and parsed_result.get("error"):
+                    _emit(
+                        {
+                            "type": "retry",
+                            "target": f"tool:{name}",
+                            "attempt": 1,
+                            "max_attempts": 1,
+                            "delay_s": 0.0,
+                            "error": str(parsed_result.get("error")),
+                            "timestamp": time.time(),
+                        }
+                    )
             except Exception:
                 pass
 
-            event_payload = {"type": "tool_result", "tool": name, "result": result_str[:600]}
+            event_payload = {"type": "tool_result", "tool": name, "result": result_str}
             if result_data is not None:
                 event_payload["result_data"] = result_data
             _emit(event_payload)
@@ -207,6 +279,25 @@ def run_shopping_agent(
                     if data.get("success") and isinstance(data, dict):
                         last_order = data.get("order")
                         completed_purchase = data
+                        tx_hash = data.get("tx_hash")
+                        if isinstance(tx_hash, str) and tx_hash.strip():
+                            pending_verification_tx_hash = tx_hash.strip()
+                except Exception:
+                    pass
+            if name == "verify_transaction":
+                try:
+                    data = json.loads(result_str)
+                    if isinstance(data, dict):
+                        _emit(
+                            {
+                                "type": "verification",
+                                "tx_hash": data.get("tx_hash") or pending_verification_tx_hash,
+                                "verified": bool(data.get("verified")),
+                                "status": data.get("status"),
+                                "block_number": data.get("block_number"),
+                                "timestamp": time.time(),
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -215,4 +306,23 @@ def run_shopping_agent(
         if last_order is not None:
             continue  # let Gemini produce a final summary
 
-    return {"success": False, "result": "Agent loop exceeded max iterations.", "order": completed_purchase}
+    _emit(
+        {
+            "type": "budget_summary",
+            "iterations_used": iterations_used,
+            "max_iterations": MAX_AGENT_ITERATIONS,
+            "tool_calls": tool_calls_count,
+            "duration_ms": int((time.time() - start_ts) * 1000),
+        }
+    )
+    return {
+        "success": False,
+        "result": "Agent loop exceeded max iterations.",
+        "order": completed_purchase,
+        "budget": {
+            "iterations_used": iterations_used,
+            "max_iterations": MAX_AGENT_ITERATIONS,
+            "tool_calls": tool_calls_count,
+            "duration_ms": int((time.time() - start_ts) * 1000),
+        },
+    }

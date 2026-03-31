@@ -4,7 +4,7 @@ import { getAgentById, updateAgentErc8004Id } from "@/lib/db/queries-agents";
 import { NextResponse } from "next/server";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
@@ -30,6 +30,22 @@ export async function POST(
     const data = (await res.json()) as { erc8004_id: number };
     const erc8004Id = String(data.erc8004_id);
     await updateAgentErc8004Id(id, erc8004Id);
+
+    // Auto-publish manifest to IPFS and set on-chain tokenURI when possible.
+    const body = (await req.json().catch(() => ({}))) as { operatorWallet?: string };
+    try {
+      await fetch(`${AGENT_URL}/agents/${id}/publish-manifest`, {
+        method: "POST",
+        headers: agentBackendHeaders(),
+        body: JSON.stringify({
+          erc8004_id: Number.parseInt(erc8004Id, 10),
+          operator_wallet: body.operatorWallet ?? null,
+        }),
+      });
+    } catch {
+      // Best-effort; registration already succeeded.
+    }
+
     const updated = await getAgentById(id, session.user.id);
     if (!updated) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -6,9 +6,11 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from eth_account import Account
 from shopping.evm import BASE_SEPOLIA_CHAIN_ID, agent_account
+from shopping.ipfs import pin_json_to_ipfs
 
 log = logging.getLogger(__name__)
 
@@ -217,11 +219,73 @@ def build_registration_dict(
     }
 
 
+def build_agent_manifest(
+    *,
+    agent_name: str,
+    description: str,
+    operator_wallet: str | None,
+    erc8004_agent_id: int | None,
+    supported_tools: list[dict[str, str]],
+    model: str,
+    max_iterations: int,
+    max_llm_retries: int,
+    task_categories: list[str] | None = None,
+) -> dict[str, Any]:
+    """Machine-readable agent capability manifest for challenge submissions."""
+    registry_addr = (os.environ.get("ERC8004_IDENTITY_REGISTRY", "") or "").strip()
+    reputation_addr = (os.environ.get("ERC8004_REPUTATION_REGISTRY", "") or "").strip()
+    facilitator = os.environ.get("X402_FACILITATOR_URL", "https://x402.org/facilitator")
+    manifest: dict[str, Any] = {
+        "name": agent_name or "Aaroh Agent",
+        "description": description or "Autonomous shopping agent powered by Aaroh",
+        "operator_wallet": operator_wallet or "",
+        "erc8004_identity": {
+            "agent_id": erc8004_agent_id,
+            "network": f"eip155:{BASE_SEPOLIA_CHAIN_ID}",
+            "identity_registry": registry_addr or None,
+            "reputation_registry": reputation_addr or None,
+        },
+        "supported_tools": supported_tools,
+        "supported_tech_stacks": [
+            "python",
+            "fastapi",
+            "google-genai",
+            "x402",
+            "ucp",
+            "erc-8004",
+        ],
+        "compute_constraints": {
+            "max_iterations": max_iterations,
+            "max_llm_retries": max_llm_retries,
+            "model": model,
+        },
+        "supported_task_categories": task_categories
+        or [
+            "shopping",
+            "product-discovery",
+            "autonomous-checkout",
+            "x402-payment",
+        ],
+        "x402_support": {
+            "network": os.environ.get("X402_NETWORK", f"eip155:{BASE_SEPOLIA_CHAIN_ID}"),
+            "asset": os.environ.get("X402_USDC_ADDRESS", "USDC"),
+            "facilitator": facilitator,
+        },
+    }
+    return manifest
+
+
 def registration_json_to_data_uri(doc: dict) -> str:
     """Encode registration JSON as EIP-8004 data URI."""
     raw = json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     b64 = base64.b64encode(raw).decode("ascii")
     return f"data:application/json;base64,{b64}"
+
+
+def registration_json_to_ipfs_uri(doc: dict, *, pin_name: str | None = None) -> tuple[str, str]:
+    """Pin registration JSON to IPFS and return (ipfs_uri, cid)."""
+    cid = pin_json_to_ipfs(doc, name=pin_name)
+    return f"ipfs://{cid}", cid
 
 
 def register_with_data_uri(private_key_hex: str, data_uri: str) -> int | None:
@@ -443,21 +507,111 @@ def register_consumer_agent_eip8004(
     private_key_hex: str,
     name: str,
     description: str,
+    *,
+    operator_wallet: str | None = None,
+    supported_tools: list[dict[str, str]] | None = None,
+    model: str = "",
+    max_iterations: int = 20,
+    max_llm_retries: int = 6,
 ) -> int | None:
     """Full flow: register with minimal data URI, then setAgentURI with registrations filled."""
-    # Step 1: mint with registration doc without on-chain agentId in registrations
+    # Step 1: mint with registration doc without on-chain agentId in registrations.
+    # Use IPFS URI when PINATA_JWT is configured, else fallback to data URI.
     doc_initial = build_registration_dict(name, description, on_chain_agent_id=None)
-    uri_initial = registration_json_to_data_uri(doc_initial)
+    uri_initial: str
+    use_ipfs = bool(os.environ.get("PINATA_JWT", "").strip())
+    if use_ipfs:
+        try:
+            uri_initial, cid_initial = registration_json_to_ipfs_uri(
+                doc_initial, pin_name=f"aaroh-registration-initial-{name or 'agent'}"
+            )
+            log.info("EIP-8004: pinned initial registration to IPFS cid=%s", cid_initial)
+        except Exception as exc:
+            log.warning("EIP-8004: IPFS pin failed; falling back to data URI: %s", exc)
+            uri_initial = registration_json_to_data_uri(doc_initial)
+    else:
+        uri_initial = registration_json_to_data_uri(doc_initial)
     agent_id = register_with_data_uri(private_key_hex, uri_initial)
     if agent_id is None:
         return None
-    # Step 2: update URI with proper registrations entry
-    doc_final = build_registration_dict(name, description, on_chain_agent_id=agent_id)
-    uri_final = registration_json_to_data_uri(doc_final)
+    # Step 2: update URI with proper registrations entry. Prefer agent manifest on IPFS.
+    if use_ipfs:
+        tools = supported_tools or []
+        manifest = build_agent_manifest(
+            agent_name=name,
+            description=description,
+            operator_wallet=operator_wallet,
+            erc8004_agent_id=agent_id,
+            supported_tools=tools,
+            model=model,
+            max_iterations=max_iterations,
+            max_llm_retries=max_llm_retries,
+        )
+        try:
+            uri_final, cid = registration_json_to_ipfs_uri(
+                manifest, pin_name=f"aaroh-agent-manifest-{agent_id}"
+            )
+            log.info("EIP-8004: pinned agent manifest to IPFS cid=%s", cid)
+        except Exception as exc:
+            log.warning("EIP-8004: manifest IPFS pin failed; falling back to registration doc: %s", exc)
+            doc_final = build_registration_dict(name, description, on_chain_agent_id=agent_id)
+            uri_final = registration_json_to_data_uri(doc_final)
+    else:
+        doc_final = build_registration_dict(name, description, on_chain_agent_id=agent_id)
+        uri_final = registration_json_to_data_uri(doc_final)
     if set_agent_uri(private_key_hex, agent_id, uri_final):
         return agent_id
     # Mint succeeded but update failed — still return agent id
     return agent_id
+
+
+def get_reputation_summary(
+    agent_id: int,
+    *,
+    tag1: str = "starred",
+    tag2: str = "session",
+    client_addresses: list[str] | None = None,
+) -> dict[str, Any]:
+    """Read EIP-8004 reputation summary for an agent."""
+    from web3 import Web3  # noqa: PLC0415
+
+    reputation_addr = os.environ.get("ERC8004_REPUTATION_REGISTRY", "").strip()
+    if not reputation_addr:
+        raise RuntimeError("ERC8004_REPUTATION_REGISTRY is not configured")
+    rpc_url = os.environ.get("IDENTITY_REGISTRY_RPC", "https://sepolia.base.org")
+    w3 = Web3(Web3.HTTPProvider(rpc_url))
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(reputation_addr),
+        abi=REPUTATION_REGISTRY_ABI,
+    )
+    count, summary_value, summary_decimals = contract.functions.getSummary(
+        int(agent_id),
+        client_addresses or [],
+        tag1,
+        tag2,
+    ).call()
+    return {
+        "agent_id": int(agent_id),
+        "count": int(count),
+        "summary_value": int(summary_value),
+        "summary_decimals": int(summary_decimals),
+        "tag1": tag1,
+        "tag2": tag2,
+        "reputation_registry": reputation_addr,
+        "network": f"eip155:{BASE_SEPOLIA_CHAIN_ID}",
+    }
+
+
+def get_agent_token_uri(agent_id: int) -> str:
+    """Read tokenURI for an EIP-8004 identity NFT."""
+    result = _w3_and_registry()
+    if result[0] is None:
+        raise RuntimeError("ERC8004_IDENTITY_REGISTRY is not configured")
+    _w3, contract, _ = result
+    uri = contract.functions.tokenURI(int(agent_id)).call()
+    if not isinstance(uri, str):
+        raise RuntimeError("Invalid tokenURI response")
+    return uri
 
 
 def get_or_register_eip8004_identity() -> int | None:
