@@ -20,7 +20,7 @@ The onboarding flow generates a fully compliant UCP server with discovery, produ
 
 ### For Agents — Autonomous Shopping
 
-Each agent has its own derived EVM wallet (no shared key). The agent:
+Each agent has its own EVM wallet generated server-side on `agent.py` (encrypted at rest). The agent:
 
 1. **Discovers** a UCP merchant via `/.well-known/ucp`
 2. **Searches** the catalogue and **adds** items to cart
@@ -29,7 +29,7 @@ Each agent has its own derived EVM wallet (no shared key). The agent:
 
 The autonomous loop is started with `POST /shop` (consumer agents pass `consumer_agent_id` so keys stay on the agent server). Checkout uses a two-step **x402** flow: `checkout` (HTTP 402 payment requirements) then `submit_payment` (signed `X-PAYMENT`).
 
-### Agent wallets (server-side)
+### Agent Wallets (server-side)
 
 Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypted at rest (`AGENT_KEY_ENCRYPTION_SECRET`), and registered on EIP-8004 when the registry is configured. The consumer app stores only the **public address** and `userId`; private keys are never sent to the browser or Next.js.
 
@@ -37,33 +37,7 @@ Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypte
 
 ## Architecture
 
-```
-┌─────────────────────────────┐   ┌─────────────────────────────┐
-│  consumer/  (port 3000)     │   │  merchant/  (port 3001)     │
-│  ┌─────────┐  ┌──────────┐  │   │  ┌───────────┐  ┌───────┐  │
-│  │  Chat   │  │  Agents  │  │   │  │ Dashboard │  │Onboard│  │
-│  └─────────┘  └──────────┘  │   │  └───────────┘  └───────┘  │
-│  Privy auth · Claude + MCP  │   │  Privy auth · UCP mgmt      │
-└─────────────────────────────┘   └─────────────────────────────┘
-         │                                    │
-         └──────────── PostgreSQL ────────────┘
-                   (shared database)
-         │
-         ▼
-  mcp_client.py         agent.py (port 8004)
-  (stdio MCP server)    (FastAPI + Gemini)
-         │                   │
-         └─────────┬─────────┘
-                   ▼
-        UCP Merchant Server (rest/python/server/)
-        ├── /.well-known/ucp
-        ├── /products, /catalogue
-        ├── /checkout-sessions
-        └── x402 payment verification
-                   │
-                   ▼
-       USDC on Ethereum Sepolia (EIP-3009)
-```
+![Aaroh architecture diagram](landing/public/diagram.jpg)
 
 ---
 
@@ -73,6 +47,7 @@ Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypte
 |---|---|
 | [`consumer/`](consumer/) | Next.js app (port 3000) — Chat, Agents, shopping UI |
 | [`merchant/`](merchant/) | Next.js app (port 3001) — Dashboard, merchant onboarding |
+| [`landing/`](landing/) | Next.js landing page |
 | [`agent.py`](agent.py) | Autonomous shopping agent — FastAPI + EIP-8004 identity |
 | [`mcp_client.py`](mcp_client.py) | MCP server for Claude Desktop / any MCP client |
 | [`shopping/`](shopping/) | Shared shopping session library (used by agent + MCP) |
@@ -89,14 +64,14 @@ Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypte
 - Python ≥ 3.10 + [uv](https://docs.astral.sh/uv/)
 - Node.js ≥ 18 + pnpm
 - PostgreSQL database (or a [Supabase](https://supabase.com) project)
-- A funded USDC wallet on **Ethereum Sepolia** (for the agent to pay)
+- A funded USDC wallet on **Base Sepolia** (for the agent to pay)
 
 ### 1. Start the Consumer App
 
 ```bash
 cd consumer
 cp .env.example .env.local
-# Fill in: POSTGRES_URL, AUTH_SECRET, GOOGLE_GENERATIVE_AI_API_KEY, NEXT_PUBLIC_PRIVY_APP_ID
+# Fill in: POSTGRES_URL, AUTH_SECRET, GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, NEXT_PUBLIC_PRIVY_APP_ID
 # Optional: NEXT_PUBLIC_MERCHANT_APP_URL (default: http://localhost:3001)
 
 pnpm install
@@ -182,9 +157,6 @@ On first request to `/identity`, the process can register a **global** EIP-8004 
 }
 ```
 
----
-
-
 ### 7. Start the Landing Page (Optional)
 
 ```bash
@@ -192,6 +164,8 @@ cd landing
 pnpm install
 pnpm dev           # http://localhost:4000
 ```
+
+---
 
 ## Database Migrations
 
@@ -231,9 +205,10 @@ Available to any MCP-connected AI agent (Claude Desktop, etc.):
 
 ## Payments — x402 / EIP-3009
 
-All payments use **USDC on Ethereum Sepolia** via the [x402 protocol](https://x402.org):
+All payments use **USDC on Base Sepolia** via the [x402 protocol](https://x402.org):
 
-- Token: `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` (USDC, Ethereum Sepolia)
+- Token: `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (USDC, Base Sepolia)
+- Chain ID: `eip155:84532`
 - Scheme: `exact` — agent signs an EIP-3009 `TransferWithAuthorization`
 - Facilitator: `https://x402.org/facilitator` (configurable via `X402_FACILITATOR_URL`)
 - Amount unit: USDC micro-units (6 decimals) — `cents × 10_000`
@@ -254,6 +229,19 @@ The `agentId` (uint256 NFT) is included in the `UCP-Agent` header on every reque
 ```
 UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 ```
+
+---
+
+## Chat Models
+
+The consumer app supports multiple LLM providers for the chat interface:
+
+| Provider | Models |
+|---|---|
+| Google Gemini | Gemini 3.0 Flash, Gemini 2.5 Flash (default), Gemini 2.5 Flash Lite |
+| OpenAI | GPT-4o mini, GPT-4.1, o3-mini |
+
+The autonomous agent (`agent.py`) uses **Gemini 2.5 Flash** by default (configurable via `GEMINI_MODEL`).
 
 ---
 
@@ -279,12 +267,16 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 |---|---|
 | `POSTGRES_URL` | PostgreSQL connection string |
 | `AUTH_SECRET` | Auth.js secret (`openssl rand -base64 32`) |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key (for chat) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key (for chat + title generation) |
+| `OPENAI_API_KEY` | OpenAI API key (for GPT/o3 models in chat) |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (wallet + social login) |
 | `NEXT_PUBLIC_MERCHANT_APP_URL` | Merchant app URL (default: `http://localhost:3001`) |
 | `AGENT_URL` | Autonomous agent URL (default: `http://localhost:8004`) |
 | `AGENT_API_SECRET` | Bearer token for `agent.py` (must match server `AGENT_API_SECRET` when set) |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob token (file uploads) |
+| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
+| `MCP_MERCHANT_URL` | Default merchant URL for MCP tools |
+| `MCP_MERCHANT_NAME` | Merchant display name for MCP tools |
 
 ### Merchant App (`merchant/.env.local`)
 
@@ -306,7 +298,7 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini API key (same as consumer; `GEMINI_API_KEY` still works) |
 | `GEMINI_MODEL` | Model name (default: `gemini-2.5-flash`) |
 | `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address |
-| `IDENTITY_REGISTRY_RPC` | Base Sepolia RPC URL |
+| `IDENTITY_REGISTRY_RPC` | Ethereum Sepolia RPC URL |
 | `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
 | `MERCHANT_URL` | Default merchant URL |
 
@@ -315,7 +307,7 @@ UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
 | Variable | Description |
 |---|---|
 | `MERCHANT_WALLET` | EVM wallet address to receive USDC (enables x402) |
-| `X402_NETWORK` | Chain ID string (default: `eip155:11155111`) |
+| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
 | `X402_FACILITATOR_URL` | x402 facilitator URL (default: `https://x402.org/facilitator`) |
 
 ---

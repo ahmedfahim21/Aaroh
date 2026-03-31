@@ -54,7 +54,7 @@ export default function LandingPage() {
 
           <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground sm:text-lg">
             Merchants onboard in minutes. Agents discover products autonomously,
-            pay with USDC, and complete orders — no human in the loop.
+            pay with USDC, and complete orders — with or without human in the loop.
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
@@ -94,7 +94,7 @@ export default function LandingPage() {
             <StepCard
               step="02"
               title="Agent discovers"
-              description="Any AI agent — Claude, Gemini, or your own — discovers the merchant via the standard /.well-known/ucp endpoint."
+              description="AI agent discovers the merchant via the standard /.well-known/ucp endpoint."
             />
             <StepCard
               step="03"
@@ -124,7 +124,7 @@ export default function LandingPage() {
             <FeatureCard
               icon={<Banknote className="h-4 w-4" />}
               title="x402 Crypto Payments"
-              description="USDC payments via EIP-3009 TransferWithAuthorization. No seed phrases leave the client."
+              description="USDC payments via EIP-3009 TransferWithAuthorization."
             />
             <FeatureCard
               icon={<Fingerprint className="h-4 w-4" />}
@@ -133,8 +133,8 @@ export default function LandingPage() {
             />
             <FeatureCard
               icon={<Wallet className="h-4 w-4" />}
-              title="Derived Agent Wallets"
-              description="Per-agent keys derived client-side from a single Privy signature. Only the address is stored — never the key."
+              title="Server-Side Agent Wallets"
+              description="Per-agent EVM keypairs generated and encrypted on the agent server. Only the public address is stored — private keys never leave the server."
             />
             <FeatureCard
               icon={<Link2 className="h-4 w-4" />}
@@ -161,56 +161,15 @@ export default function LandingPage() {
           </h2>
           <p className="mx-auto mt-4 max-w-lg text-center text-sm text-muted-foreground">
             Consumer and merchant concerns are separated into independent
-            Next.js apps sharing a single PostgreSQL database.
+            Next.js apps, with an AI layer and on-chain payments connecting them.
           </p>
 
-          <div className="mt-12 grid gap-4 sm:grid-cols-2">
-            <AppCard
-              href={CONSUMER_URL}
-              title="Consumer App"
-              port="3000"
-              lines={[
-                "Chat with Claude + MCP tools",
-                "Create & manage autonomous agents",
-                "Derive per-agent wallets via Privy",
-                "Fund agents with USDC",
-              ]}
+          <div className="mt-12 overflow-hidden rounded-lg border bg-card">
+            <img
+              src="/diagram.jpg"
+              alt="Aaroh architecture diagram — Consumer Interface, AI Layer (Agent Server, Gemini, MCP Tool Server), Merchant Side (Dashboard, Storefronts via UCP), On-Chain Identity (EIP-8004), and Payments (x402 Facilitator, USDC)"
+              className="w-full"
             />
-            <AppCard
-              href={MERCHANT_URL}
-              title="Merchant App"
-              port="3001"
-              lines={[
-                "Upload catalogue CSV to onboard",
-                "UCP server starts automatically",
-                "Start / stop from the dashboard",
-                "x402 payment verification built in",
-              ]}
-            />
-          </div>
-
-          <div className="mt-4 rounded-lg border bg-card p-5">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-xs font-mono text-muted-foreground">
-                Py
-              </span>
-              Backend Services
-            </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {[
-                ["mcp_client.py", "MCP server for Claude"],
-                ["agent.py", "Autonomous agent (port 8004)"],
-                ["rest/python/server/", "UCP merchant server"],
-              ].map(([name, desc]) => (
-                <div
-                  key={name}
-                  className="rounded-md bg-muted/60 px-3 py-2"
-                >
-                  <p className="font-mono text-xs text-foreground">{name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>
@@ -219,7 +178,7 @@ export default function LandingPage() {
       <section className="px-6 py-20 sm:py-28">
         <div className="mx-auto max-w-xl text-center">
           <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            Ready to build agentic commerce?
+            Ready to join agentic commerce?
           </h2>
           <p className="mt-3 text-sm text-muted-foreground">
             Onboard a merchant in under a minute, or spin up an agent that shops
@@ -311,45 +270,5 @@ function FeatureCard({
         {description}
       </p>
     </div>
-  );
-}
-
-function AppCard({
-  href,
-  title,
-  port,
-  lines,
-}: {
-  href: string;
-  title: string;
-  port: string;
-  lines: string[];
-}) {
-  return (
-    <a
-      href={href}
-      className="group rounded-lg border bg-card p-5 transition-colors hover:border-foreground/20"
-    >
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{title}</h3>
-        <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
-          :{port}
-        </span>
-      </div>
-      <ul className="mt-3 flex flex-col gap-1.5">
-        {lines.map((line) => (
-          <li
-            key={line}
-            className="flex items-start gap-2 text-sm text-muted-foreground"
-          >
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/40" />
-            {line}
-          </li>
-        ))}
-      </ul>
-      <div className="mt-4 flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-        Open <ArrowRight className="h-3.5 w-3.5" />
-      </div>
-    </a>
   );
 }

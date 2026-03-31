@@ -47,8 +47,6 @@ function getStreamContext() {
   }
 }
 
-export { getStreamContext };
-
 export async function POST(request: Request) {
   let requestBody: PostRequestBody;
 
@@ -151,7 +149,8 @@ export async function POST(request: Request) {
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages: modelMessages,
           stopWhen: stepCountIs(5),
-          experimental_activeTools: isReasoningModel
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          experimental_activeTools: (isReasoningModel
             ? []
             : [
                 "getWeather",
@@ -159,7 +158,7 @@ export async function POST(request: Request) {
                 "updateDocument",
                 "requestSuggestions",
                 ...mcpToolNames,
-              ],
+              ]) as any,
           providerOptions: isReasoningModel
             ? { google: { thinkingConfig: { thinkingBudget: 10_000 } } }
             : undefined,
@@ -222,9 +221,10 @@ export async function POST(request: Request) {
           });
         }
       },
-      onError: ({ error }) => {
+      onError: (error: unknown) => {
+        const err = error instanceof Error ? error : (error as any)?.error;
         const message =
-          error instanceof Error ? error.message : "Oops, an error occurred!";
+          err instanceof Error ? err.message : "Oops, an error occurred!";
 
         if (
           message.toLowerCase().includes("quota exceeded") ||
