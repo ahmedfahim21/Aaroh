@@ -6,6 +6,14 @@ import {
   Link2,
   ShieldCheck,
   ArrowRight,
+  Lock,
+  Unplug,
+  CreditCard,
+  Ghost,
+  Zap,
+  Eye,
+  Rocket,
+  Earth,
 } from "lucide-react";
 
 const CONSUMER_URL =
@@ -71,6 +79,45 @@ export default function LandingPage() {
             >
               Become a Merchant
             </a>
+          </div>
+        </div>
+      </section>
+
+      {/* ── The Problem ── */}
+      <section className="border-t px-6 py-20 sm:py-28">
+        <div className="mx-auto max-w-5xl">
+          <p className="text-center text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            The problem
+          </p>
+          <h2 className="mt-3 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+            E-commerce wasn&apos;t built for agents
+          </h2>
+          <p className="mx-auto mt-4 max-w-lg text-center text-sm text-muted-foreground">
+            Today&apos;s online shopping is locked behind human-only interfaces. AI
+            agents hit walls at every step.
+          </p>
+
+          <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <ProblemCard
+              icon={<Lock className="h-4 w-4" />}
+              title="Walled gardens"
+              description="Logins, CAPTCHAs, and closed APIs block non-human access."
+            />
+            <ProblemCard
+              icon={<Unplug className="h-4 w-4" />}
+              title="No standard protocol"
+              description="Every merchant integration is bespoke — agents can't generalize."
+            />
+            <ProblemCard
+              icon={<CreditCard className="h-4 w-4" />}
+              title="No agent payments"
+              description="Agents can't hold wallets, sign transactions, or settle on-chain."
+            />
+            <ProblemCard
+              icon={<Ghost className="h-4 w-4" />}
+              title="No agent identity"
+              description="Merchants have no way to verify who — or what — is buying."
+            />
           </div>
         </div>
       </section>
@@ -146,6 +193,51 @@ export default function LandingPage() {
               title="Trustless & Permissionless"
               description="No API keys, no platform lock-in. Merchants and agents interact peer-to-peer through open standards."
             />
+          </div>
+        </div>
+      </section>
+
+      {/* ── Why this wins ── */}
+      <section className="border-t px-6 py-20 sm:py-28">
+        <div className="mx-auto max-w-5xl">
+          <p className="text-center text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Why this wins
+          </p>
+          <h2 className="mt-3 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+            The unfair advantages
+          </h2>
+
+          <div className="mt-14 grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex flex-col gap-2 bg-card p-6 sm:p-8">
+              <Zap className="h-5 w-5 text-yellow-500" />
+              <h3 className="font-semibold">End-to-end open</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                No API keys, no walled gardens, no middlemen. Fully open-source.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 bg-card p-6 sm:p-8">
+              <Eye className="h-5 w-5 text-blue-500" />
+              <h3 className="font-semibold">On-chain everything</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Identity, reputation, payments — all verifiable on-chain. No trust
+                assumptions.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 bg-card p-6 sm:p-8">
+              <Rocket className="h-5 w-5 text-pink-500" />
+              <h3 className="font-semibold">Works today</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Merchant onboard to on-chain receipt in 3 minutes. Not a whitepaper
+                — a working system.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 bg-card p-6 sm:p-8">
+              <Earth className="h-5 w-5 text-green-500" />
+              <h3 className="font-semibold">Universal</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Any agent, any merchant, any LLM. Plug into UCP and go.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -245,6 +337,28 @@ function StepCard({
       <span className="font-mono text-xs text-muted-foreground">{step}</span>
       <h3 className="font-semibold">{title}</h3>
       <p className="text-sm leading-relaxed text-muted-foreground">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function ProblemCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6">
+      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+        {icon}
+      </div>
+      <h3 className="mt-4 font-semibold">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {description}
       </p>
     </div>
