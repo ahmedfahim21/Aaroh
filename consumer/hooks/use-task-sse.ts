@@ -5,7 +5,12 @@ import { useEffect, useRef, useState } from "react";
 export type AgentEvent =
   | { type: "thinking" }
   | { type: "tool_call"; tool: string; args: Record<string, unknown> }
-  | { type: "tool_result"; tool: string; result: string }
+  | {
+      type: "tool_result";
+      tool: string;
+      result: string;
+      result_data?: Record<string, unknown>;
+    }
   | { type: "text"; text: string }
   | { type: "log"; level: string; msg: string }
   | {
