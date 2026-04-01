@@ -1,13 +1,12 @@
 # Aaroh — Agentic Commerce
 
-A crypto-native agentic commerce stack. AI agents discover merchants, shop autonomously, and pay with USDC — no human in the loop.
+A crypto-native agentic commerce stack: AI agents discover merchants, shop autonomously, and pay with USDC — with optional human oversight in chat.
 
-Built on the [Universal Commerce Protocol (UCP)](https://developers.google.com/merchant/ucp/guides) with [x402](https://x402.org) crypto payments (USDC / EIP-3009) and [EIP-8004](https://github.com/EIPs-CodeLab/ERC-8004) trustless agent identity.
+Built on the [Universal Commerce Protocol (UCP)](https://developers.google.com/merchant/ucp/guides), [x402](https://x402.org) crypto payments (USDC / EIP-3009), and [EIP-8004](https://github.com/EIPs-CodeLab/ERC-8004) trustless agent identity.
 
 ---
 
-
-## 🎥 Demo
+## Demo
 
 Click below to watch the demo:
 
@@ -17,35 +16,6 @@ Click below to watch the demo:
   </a>
 </p>
 
-----
-
-## How It Works
-
-### For Merchants — Go Live in Minutes
-
-Provide a **product catalogue CSV** and an **EVM wallet address** to receive USDC payments. That's it.
-
-```
-Catalogue CSV + EVM Wallet → UCP-Compliant Merchant Server → Visible to Any AI Agent
-```
-
-The onboarding flow generates a fully compliant UCP server with discovery, product search, checkout sessions, and x402 payment verification. Start it from the **Dashboard** in the merchant app.
-
-### For Agents — Autonomous Shopping
-
-Each agent has its own EVM wallet generated server-side on `agent.py` (encrypted at rest). The agent:
-
-1. **Discovers** a UCP merchant via `/.well-known/ucp`
-2. **Searches** the catalogue and **adds** items to cart
-3. **Checks out**, signs an EIP-3009 USDC `TransferWithAuthorization`
-4. **Submits** the signed `X-PAYMENT` header to complete the order
-
-The autonomous loop is started with `POST /shop` (consumer agents pass `consumer_agent_id` so keys stay on the agent server). Checkout uses a two-step **x402** flow: `checkout` (HTTP 402 payment requirements) then `submit_payment` (signed `X-PAYMENT`).
-
-### Agent Wallets (server-side)
-
-Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypted at rest (`AGENT_KEY_ENCRYPTION_SECRET`), and registered on EIP-8004 when the registry is configured. The consumer app stores only the **public address** and `userId`; private keys are never sent to the browser or Next.js.
-
 ---
 
 ## Architecture
@@ -54,287 +24,141 @@ Per-consumer-app agents get an EVM keypair generated on **`agent.py`**, encrypte
 
 ---
 
-## Project Structure
+## The journey
 
-| Path | Description |
-|---|---|
-| [`consumer/`](consumer/) | Next.js app (port 3000) — Chat, Agents, shopping UI |
-| [`merchant/`](merchant/) | Next.js app (port 3001) — Dashboard, merchant onboarding |
-| [`landing/`](landing/) | Next.js landing page |
-| [`agent.py`](agent.py) | Autonomous shopping agent — FastAPI + EIP-8004 identity |
-| [`mcp_client.py`](mcp_client.py) | MCP server for Claude Desktop / any MCP client |
-| [`shopping/`](shopping/) | Shared shopping session library (used by agent + MCP) |
-| [`onboard_merchant.py`](onboard_merchant.py) | CLI: CSV → UCP merchant package |
-| [`rest/python/server/`](rest/python/server/) | UCP merchant server (FastAPI + SQLite + x402) |
-| [`demo_data/`](demo_data/) | Sample product catalogues |
+### Step 1: Merchant goes live
 
----
+1. Open the **merchant app** → **Onboard**: upload a catalogue (CSV or XLSX), enter an EVM wallet to receive USDC, optional tags/description.
+2. After onboarding, open **Dashboard** → **Start** the UCP server for that merchant (assigns a local port, tails logs, links to `/.well-known/ucp`).
+3. From the dashboard you can inspect **products** and **orders** while the server runs.
 
-## Quick Start
+With just three steps, the merchant is live, fully compliant with UCP, and ready to be discovered by agents.
 
-### Prerequisites
+### Step 2: Consumer creates an agent
 
-- Python ≥ 3.10 + [uv](https://docs.astral.sh/uv/)
-- Node.js ≥ 18 + pnpm
-- PostgreSQL database (or a [Supabase](https://supabase.com) project)
-- A funded USDC wallet on **Base Sepolia** (for the agent to pay)
+1. Now that we have merchants, visit the **consumer app**, sign in (Privy + optional guest flows).
+2. **Agents → New agent** — the app calls `agent.py` `POST /agents` to mint an EVM keypair **server-side** (encrypted at rest); you only see the public address.
+3. Fund the agent with **USDC on Base Sepolia** to allow the agent to shop autonomously. Add ETH to register an EIP-8004 identity.
+4. Give the agent an identity by clicking on the agent detail page and registering the EIP-8004 identity. This automatically takes care of creating an agent.json file and publishing it to IPFS. All of this is verifiable on-chain.
 
-### 1. Start the Consumer App
+**Examples**: 
+- [Agent Wallet](https://sepolia.basescan.org/address/0x7ABDC88c77cc6dC87C94ea2cDE373e9eaf4f8508)
+- [Agent ERC-8004 NFT](https://sepolia.basescan.org/nft/0x8004A818BFB912233c491871b3d84c89A494BD9e/3142)
+- [Agent Manifest](https://gateway.pinata.cloud/ipfs/QmP5TFRTaVArV7eiqsP8M5AKm8jYUM9FfPhwyrDxVAVXd5)
+- [Reputation / Agent feedback](https://sepolia.basescan.org/tx/0x795f298144e3194f2b510fd48690d433fffabf8f6992e8b9ae788a637773fef0)
 
-```bash
-cd consumer
-cp .env.example .env.local
-# Fill in: POSTGRES_URL, AUTH_SECRET, GOOGLE_GENERATIVE_AI_API_KEY, OPENAI_API_KEY, NEXT_PUBLIC_PRIVY_APP_ID
-# Optional: NEXT_PUBLIC_MERCHANT_APP_URL (default: http://localhost:3001)
+### Step 3a: Agent shops autonomously
+1. **Dispatch a task** from the agent detail page — the consumer app creates an `AgentSession` and calls `POST /shop` on `agent.py` with your natural-language goal (and optional merchant URLs / discovery seeds).
+2. The agent can discover → plan → execute → verify → pay, with guardrails (budget, retries, max iterations).
+3. **Watch live** via SSE: task events stream to the UI; when the run finishes, events are persisted on the session.
+4. **Download `agent_log.json`** from the task UI — structured export from `GET /tasks/{task_id}/log` (events, budget, final output).
 
-pnpm install
-pnpm db:migrate    # apply migrations (consumer owns all migrations)
-pnpm dev           # http://localhost:3000
-```
+### Step 3b: Human shopping experience
 
-### 2. Start the Merchant App
+1. Similar to the agent, humans can also shop with the same MCP tools exposed to the agent, visible in the **chat** tab of the consumer app.
+2. Instead of autonomous payments, there is a payment button presented to the user to sign the payment and complete the checkout.
 
-```bash
-cd merchant
-cp .env.example .env.local
-# Fill in: POSTGRES_URL, AUTH_SECRET, NEXT_PUBLIC_PRIVY_APP_ID
-# Optional: NEXT_PUBLIC_CONSUMER_APP_URL (default: http://localhost:3000)
+#### Agent shopping toolkit (MCP)
 
-pnpm install
-pnpm dev           # http://localhost:3001
-```
-
-> **Note:** Only `consumer/` owns DB migrations. Never run `drizzle-kit generate` from `merchant/`.
-
-### 3. Onboard a Merchant
-
-**From the web app** — go to the **Merchant app → Onboard**, upload a catalogue CSV and enter your EVM wallet. The UCP server starts automatically.
-
-**From the CLI:**
-
-```bash
-uv run onboard_merchant.py \
-  --catalogue demo_data/artisan-india.csv \
-  --merchant-name "Artisan India" \
-  --merchant-wallet "0xYourWallet" \
-  --output-dir deploy/artisan-india
-```
-
-Then start the UCP server:
-
-```bash
-cd rest/python/server
-uv run server.py \
-  --products_db_path=../../deploy/artisan-india/data/products.db \
-  --discovery_profile_path=../../deploy/artisan-india/discovery_profile.json \
-  --port=8000
-```
-
-Set `MERCHANT_WALLET=0xYourWallet` in the server env to enable x402 payment verification.
-
-### 4. Start the Autonomous Agent
-
-```bash
-cp .env.example .env   # repo root — Python loads this; not consumer/.env.local
-# Required for consumer-created agents: AGENT_KEY_ENCRYPTION_SECRET
-# Recommended: AGENT_API_SECRET (same value in consumer as AGENT_API_SECRET for Bearer auth)
-# Also: GOOGLE_GENERATIVE_AI_API_KEY; optional AGENT_PRIVATE_KEY for demo / AGENT_TASK without consumer_agent_id
-# Optional: ERC8004_IDENTITY_REGISTRY, IDENTITY_REGISTRY_RPC
-
-uv run agent.py        # http://localhost:8004
-```
-
-On first request to `/identity`, the process can register a **global** EIP-8004 identity (when env is set) and cache `agentId` in `.erc8004_agent_id`. Per-agent registration happens on `POST /agents`.
-
-### 5. Create Agents from the Consumer App
-
-1. Go to **Agents → + New Agent** (you must be logged in)
-2. The consumer app calls `agent.py` `POST /agents` to mint keys server-side; the card shows the agent address
-3. Fund that address with USDC on **Base Sepolia**
-4. Dispatch a task — the agent shops and pays via x402 without sending private keys over the wire
-
-### 6. Connect to Claude Desktop (MCP)
-
-```json
-{
-  "mcpServers": {
-    "shopping": {
-      "command": "uv",
-      "args": ["run", "python", "mcp_client.py"],
-      "cwd": "/path/to/agentic-commerce",
-      "env": {
-        "MERCHANT_URL": "http://localhost:8000"
-      }
-    }
-  }
-}
-```
-
-### 7. Start the Landing Page (Optional)
-
-```bash
-cd landing
-pnpm install
-pnpm dev           # http://localhost:4000
-```
-
----
-
-## Database Migrations
-
-`consumer/` is the **single source of truth** for all DB migrations. Both apps share the same PostgreSQL database.
-
-```bash
-# Generate a new migration (after editing consumer/lib/db/schema.ts)
-cd consumer && pnpm db:generate
-
-# Apply pending migrations
-cd consumer && pnpm db:migrate
-
-# Inspect the DB visually
-cd consumer && pnpm db:studio   # or: cd merchant && pnpm db:studio
-```
-
----
-
-## MCP Tools
-
-Available to any MCP-connected AI agent (Claude Desktop, etc.):
+The **same shopping session** backs MCP and the autonomous agent. In MCP, the human (or desktop client) may complete payment with a wallet-signed `X-PAYMENT` string; the **autonomous agent** signs **EIP-3009** itself via `submit_payment` and can call `verify_transaction` and `check_agent_reputation` ([`shopping/tools.py`](shopping/tools.py)).
 
 | Tool | Description |
-|---|---|
-| `discover_merchant` | Connect to a merchant via `/.well-known/ucp` |
-| `browse_categories` | List all product categories |
+|------|-------------|
+| `list_merchants` | Discover merchants from `MERCHANT_URL` / `MERCHANT_URLS` (probes `/.well-known/ucp`); optional category filter |
+| `find_merchant` | Match by name or category; auto-connects if exactly one hit |
+| `discover_merchant` | Connect to a merchant by base URL |
+| `browse_categories` | List categories from the connected merchant |
 | `search_products` | Search by keyword and/or category |
-| `get_product` | Get full product details |
-| `add_to_cart` | Add a product to the cart |
-| `view_cart` | View current cart |
-| `update_cart` | Update item quantity |
-| `remove_from_cart` | Remove an item |
-| `checkout` | Create checkout session (returns order total + merchant wallet) |
-| `complete_checkout` | Submit signed EIP-3009 x_payment to finalise the order |
+| `get_product` | Full product details by ID |
+| `add_to_cart` | Add line items |
+| `view_cart` | Current cart and totals |
+| `update_cart` | Change quantity (0 removes) |
+| `remove_from_cart` | Remove a line |
+| `checkout` | Create checkout session; returns x402 payment requirements |
+| `get_checkout_status` | Poll checkout session status on the merchant |
+| `complete_checkout` | Submit base64 `X-PAYMENT` after the user signs in their wallet |
+
+**Autonomous-only tools** (same stack, not exposed on MCP): `submit_payment` (agent wallet signs USDC authorization), `verify_transaction`, `check_agent_reputation`.
+
+### Step 4: Verify and rate
+
+1. **Transactions** in the consumer app lists persisted orders (`ConsumerOrder`).
+2. After a task, use **thumbs up/down** to submit **on-chain reputation** via `ReputationRegistry.giveFeedback` (your user wallet pays gas).
+3. Agents can **read reputation** with the `check_agent_reputation` tool when configured.
 
 ---
 
-## Payments — x402 / EIP-3009
 
-All payments use **USDC on Base Sepolia** via the [x402 protocol](https://x402.org):
+### Project structure
 
-- Token: `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (USDC, Base Sepolia)
-- Chain ID: `eip155:84532`
-- Scheme: `exact` — agent signs an EIP-3009 `TransferWithAuthorization`
-- Facilitator: `https://x402.org/facilitator` (configurable via `X402_FACILITATOR_URL`)
-- Amount unit: USDC micro-units (6 decimals) — `cents × 10_000`
+| Path | Description |
+|------|-------------|
+| [`consumer/`](consumer/) | Next.js consumer app (port 3000) — chat, agents, commerce UI, MCP wiring, SSE proxies |
+| [`merchant/`](merchant/) | Next.js merchant app (port 3001) — onboard, dashboard, UCP process control |
+| [`landing/`](landing/) | Next.js marketing site (port 4000) |
+| [`agent.py`](agent.py) | FastAPI autonomous agent — `/shop`, `/tasks`, `/agents`, EIP-8004 helpers |
+| [`mcp_client.py`](mcp_client.py) | MCP server (stdio) for any MCP client |
+| [`shopping/`](shopping/) | Shared session, tools, agent loop, identity, IPFS helpers |
+| [`onboard_merchant.py`](onboard_merchant.py) | CLI: catalogue → UCP merchant package |
+| [`rest/python/server/`](rest/python/server/) | UCP merchant server (FastAPI + SQLite + x402) |
+| [`demo_data/`](demo_data/) | Sample catalogues |
+| [`docker-compose.yml`](docker-compose.yml) | Optional local orchestration |
 
----
+### Quick start
 
-## Agent Identity — EIP-8004
+**Prerequisites:** Python ≥ 3.10 + [uv](https://docs.astral.sh/uv/), Node.js ≥ 18 + pnpm, PostgreSQL (or Supabase), USDC on **Base Sepolia** for paying agents.
 
-The autonomous agent registers a trustless on-chain identity via [EIP-8004](https://github.com/EIPs-CodeLab/ERC-8004):
+**Environment:** Copy `.env.example` at the repo root and in `consumer/` and `merchant/` (`cp .env.example .env.local`). Fill keys for Postgres, Auth.js, Privy, LLM APIs, and agent URLs — see comments in each file.
 
-| Contract | Address (Ethereum Sepolia) |
-|---|---|
-| IdentityRegistry | `0x7343dFdc3E9adf2B4D2645bE7Cb12426dB5cae1e` |
-| ReputationRegistry | `0x0a41808952EBeF39Ae90E2f71B44586C47fCD9b5` |
-| ValidationRegistry | `0x862b7c3F12990aF971a76F249D5B57efe7465F3E` |
+**Consumer**
 
-The `agentId` (uint256 NFT) is included in the `UCP-Agent` header on every request:
+```bash
+cd consumer && pnpm install && pnpm db:migrate && pnpm dev   # http://localhost:3000
 ```
-UCP-Agent: profile="evm:0xAgentAddress;erc8004=42"
+
+**Merchant**
+
+```bash
+cd merchant && pnpm install && pnpm dev   # http://localhost:3001
 ```
 
----
+> Migrations live only in `consumer/` — both apps share one database. Run `pnpm db:migrate` from `consumer` only.
 
-## Chat Models
+**Agent** (repo root)
 
-The consumer app supports multiple LLM providers for the chat interface:
+```bash
+cp .env.example .env
+# Required for consumer-created agents: AGENT_KEY_ENCRYPTION_SECRET
+# Recommended: AGENT_API_SECRET (match consumer AGENT_API_SECRET)
+uv run agent.py   # http://localhost:8004
+```
 
-| Provider | Models |
-|---|---|
-| Google Gemini | Gemini 3.0 Flash, Gemini 2.5 Flash (default), Gemini 2.5 Flash Lite |
-| OpenAI | GPT-4o mini, GPT-4.1, o3-mini |
+**UCP server** — after onboarding, start from the merchant dashboard, or manually `uv run server.py` under `rest/python/server/` with paths from `deploy/<slug>/`.
 
-The autonomous agent (`agent.py`) uses **Gemini 2.5 Flash** by default (configurable via `GEMINI_MODEL`).
+**Landing (optional):** `cd landing && pnpm install && pnpm dev -- -p 4000` → http://localhost:4000
 
----
-
-## Catalogue Format
-
-| Column | Required | Description |
-|---|---|---|
-| `id` | Yes | Unique product identifier |
-| `title` | Yes | Product name |
-| `price` | Yes | Price in **USD cents** (e.g. `2800` = $28.00) |
-| `image_url` | Yes | Product image URL |
-| `description` | No | Product description |
-| `category` | No | Product category |
-| `inventory_quantity` | No | Stock count (default: 100) |
+**Chat models:** Consumer chat supports Gemini and OpenAI (see `consumer/.env.example`). The autonomous agent defaults to **Gemini 2.5 Flash** (`GEMINI_MODEL`).
 
 ---
 
-## Environment Variables
+## References and verifiability
 
-### Consumer App (`consumer/.env.local`)
-
-| Variable | Description |
-|---|---|
-| `POSTGRES_URL` | PostgreSQL connection string |
-| `AUTH_SECRET` | Auth.js secret (`openssl rand -base64 32`) |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API key (for chat + title generation) |
-| `OPENAI_API_KEY` | OpenAI API key (for GPT/o3 models in chat) |
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (wallet + social login) |
-| `NEXT_PUBLIC_MERCHANT_APP_URL` | Merchant app URL (default: `http://localhost:3001`) |
-| `AGENT_URL` | Autonomous agent URL (default: `http://localhost:8004`) |
-| `AGENT_API_SECRET` | Bearer token for `agent.py` (must match server `AGENT_API_SECRET` when set) |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob token (file uploads) |
-| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
-| `MCP_MERCHANT_URL` | Default merchant URL for MCP tools |
-| `MCP_MERCHANT_NAME` | Merchant display name for MCP tools |
-
-### Merchant App (`merchant/.env.local`)
-
-| Variable | Description |
-|---|---|
-| `POSTGRES_URL` | PostgreSQL connection string (same DB as consumer) |
-| `AUTH_SECRET` | Auth.js secret (same value as consumer) |
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Privy app ID (same value as consumer) |
-| `NEXT_PUBLIC_CONSUMER_APP_URL` | Consumer app URL (default: `http://localhost:3000`) |
-
-### Agent (`agent.py`)
-
-| Variable | Description |
-|---|---|
-| `AGENT_API_SECRET` | If set, all routes except `GET /health` require `Authorization: Bearer …` |
-| `AGENT_KEY_ENCRYPTION_SECRET` | Secret for encrypting per-agent keys (required for `POST /agents`) |
-| `AGENT_KEYS_STORE` | Path to JSON key store (default: `.agent_keys.json` in cwd) |
-| `AGENT_PRIVATE_KEY` | Optional global fallback key when `consumer_agent_id` is not used |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini API key (same as consumer; `GEMINI_API_KEY` still works) |
-| `GEMINI_MODEL` | Model name (default: `gemini-2.5-flash`) |
-| `ERC8004_IDENTITY_REGISTRY` | IdentityRegistry contract address |
-| `IDENTITY_REGISTRY_RPC` | Ethereum Sepolia RPC URL |
-| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
-| `MERCHANT_URL` | Default merchant URL |
-
-### UCP Merchant Server
-
-| Variable | Description |
-|---|---|
-| `MERCHANT_WALLET` | EVM wallet address to receive USDC (enables x402) |
-| `X402_NETWORK` | Chain ID string (default: `eip155:84532`) |
-| `X402_FACILITATOR_URL` | x402 facilitator URL (default: `https://x402.org/facilitator`) |
-
----
-
-## UCP Compliance
-
-- **Protocol version:** `2026-01-11`
-- **Discovery:** `/.well-known/ucp`
-- **Capabilities:** checkout, order, discount, fulfillment, buyer consent
-- **Payment handler:** `org.ethereum.evm` (x402 / EIP-3009 USDC)
-- **Headers:** `UCP-Agent`, `Request-Signature`, `Idempotency-Key`, `Request-Id`
+| Resource | Link |
+|----------|------|
+| Universal Commerce Protocol | https://developers.google.com/merchant/ucp/guides |
+| x402 | https://x402.org |
+| EIP-8004 / ERC-8004 | https://github.com/EIPs-CodeLab/ERC-8004 |
+| EIP-3009 (USDC transfer with authorization) | https://eips.ethereum.org/EIPS/eip-3009 |
+| Demo video | https://www.youtube.com/watch?v=KfYrAlz9Nl4 |
+| Agent Wallet | https://sepolia.basescan.org/address/0x7ABDC88c77cc6dC87C94ea2cDE373e9eaf4f8508 |
+| Agent ERC-8004 NFT | https://sepolia.basescan.org/nft/0x8004A818BFB912233c491871b3d84c89A494BD9e/3142 |
+| Published Agent Manifest | https://gateway.pinata.cloud/ipfs/QmP5TFRTaVArV7eiqsP8M5AKm8jYUM9FfPhwyrDxVAVXd5 |
+| Reputation / Agent feedback | https://sepolia.basescan.org/tx/0x795f298144e3194f2b510fd48690d433fffabf8f6992e8b9ae788a637773fef0 |
+| IdentityRegistry (Sepolia explorer) | https://sepolia.basescan.org/address/0x8004A818BFB912233c491871b3d84c89A494BD9e_ |
+| ReputationRegistry (Sepolia explorer) | https://sepolia.basescan.org/address/0x8004B663056A597Dffe9eCcC1965A193B7388713 |
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+Apache 2.0 — see [LICENSE](LICENSE).
