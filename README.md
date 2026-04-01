@@ -6,6 +6,19 @@ Built on the [Universal Commerce Protocol (UCP)](https://developers.google.com/m
 
 ---
 
+
+## 🎥 Demo
+
+Click below to watch the demo:
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=KfYrAlz9Nl4">
+    <img src="https://github.com/user-attachments/assets/e21369f9-ad46-4947-bb40-9ae7b4022f05" alt="Project Demo"/>
+  </a>
+</p>
+
+----
+
 ## How It Works
 
 ### For Merchants — Go Live in Minutes
